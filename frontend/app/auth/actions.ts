@@ -40,8 +40,9 @@ export async function signup(formData: FormData) {
         redirect(`/login?error=${encodeURIComponent(error.message)}`)
     }
 
-    revalidatePath('/', 'layout')
-    redirect('/dashboard')
+    // revalidatePath('/', 'layout') 
+    // Instead of redirecting to dashboard, we redirect to login with a message
+    redirect('/login?mode=signup&message=Check your email for verification link')
 }
 
 export async function signout() {

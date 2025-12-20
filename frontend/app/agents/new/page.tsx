@@ -130,7 +130,7 @@ export default function NewAgentPage() {
                                     </HoverCardContent>
                                 </HoverCard>
                             </div>
-                            <Input id="api_key" name="api_key" type="password" placeholder="AIzaSy..." />
+                            <Input id="api_key" name="api_key" type="password" placeholder="AIzaSy..." required />
                         </div>
 
                         <div className="space-y-2">

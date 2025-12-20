@@ -82,6 +82,23 @@
       padding: 8px 12px;
       outline: none;
     }
+    .kiwin-send-btn {
+      margin-left: 8px;
+      width: 36px;
+      height: 36px;
+      border: none;
+      background: ${PRIMARY_COLOR};
+      border-radius: 50%;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s;
+    }
+    .kiwin-send-btn:hover { transform: scale(1.05); }
+    .kiwin-send-btn:active { transform: scale(0.95); }
+    .kiwin-send-btn svg { width: 18px; height: 18px; fill: white; }
     .kiwin-msg {
       max-width: 80%;
       padding: 8px 12px;
@@ -125,6 +142,9 @@
     <div class="kiwin-messages" id="kiwin-messages"></div>
     <div class="kiwin-input-area">
       <input type="text" class="kiwin-input" placeholder="Type a message..." />
+      <button class="kiwin-send-btn">
+        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+      </button>
     </div>
   `;
 
@@ -150,6 +170,7 @@
   const closeBtn = chatWindow.querySelector(".kiwin-close");
   const headerTitle = chatWindow.querySelector(".kiwin-header span:first-child");
   const input = chatWindow.querySelector(".kiwin-input");
+  const sendBtn = chatWindow.querySelector(".kiwin-send-btn");
   const messagesDiv = chatWindow.querySelector(".kiwin-messages");
 
   // Fetch Agent Details (Logic: Update Header Name only)
@@ -258,5 +279,7 @@
   input.addEventListener("keypress", (e) => {
     if (e.key === "Enter") sendMessage(input.value);
   });
+
+  sendBtn.addEventListener("click", () => sendMessage(input.value));
 
 })();

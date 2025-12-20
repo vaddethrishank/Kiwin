@@ -15,7 +15,7 @@ class AgentBase(BaseModel):
 
 # Properties to receive on creation
 class AgentCreate(AgentBase):
-    pass
+    api_key: str
 
 # Properties to receive on update
 class AgentUpdate(AgentBase):

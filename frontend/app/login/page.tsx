@@ -11,6 +11,7 @@ import { Suspense } from 'react'
 function LoginContent() {
     const searchParams = useSearchParams()
     const error = searchParams.get('error')
+    const message = searchParams.get('message')
     const mode = searchParams.get('mode')
     const isSignup = mode === 'signup'
 
@@ -28,6 +29,11 @@ function LoginContent() {
                         {error && (
                             <div className='p-3 text-sm text-red-500 bg-red-100 rounded-md'>
                                 {error}
+                            </div>
+                        )}
+                        {message && (
+                            <div className='p-3 text-sm text-green-500 bg-green-100 rounded-md'>
+                                {message}
                             </div>
                         )}
                         <div className="grid gap-2">

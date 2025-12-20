@@ -9,10 +9,10 @@ from app.services.tools import get_tools_for_agent, execute_tool
 
 # Global Gemini init removed - instantiated dynamically per request
 
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004", 
-    google_api_key=settings.GOOGLE_API_KEY
-)
+# embeddings = GoogleGenerativeAIEmbeddings(
+#     model="models/text-embedding-004", 
+#     google_api_key=settings.GOOGLE_API_KEY
+# )
 
 def get_db() -> Client:
     # Always use Service Role for backend processing to ensure we can read documents
@@ -88,21 +88,32 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     except Exception as e:
         print(f"Warning: Could not fetch history: {e}")
 
+
     # 3. Embed Query & Retrieve Context (RAG)
     query_vector = None
-    try:
-        query_vector = embeddings.embed_query(message)
-    except Exception as e:
-        print(f"Error embedding: {e}")
-
     context_text = ""
-    if query_vector:
-        params = {
-            "query_embedding": query_vector,
-            "match_threshold": 0.3,
-            "match_count": 5,
-            "filter_agent_id": agent_id
-        }
+    
+    # Determine API Key first (moved up from step 5)
+    api_key = agent.get('api_key') or settings.GOOGLE_API_KEY
+    
+    if api_key:
+        try:
+            # Initialize embeddings with dynamic key
+            embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/text-embedding-004", 
+                google_api_key=api_key
+            )
+            query_vector = embeddings.embed_query(message)
+        except Exception as e:
+            print(f"Error embedding: {e}")
+
+        if query_vector:
+            params = {
+                "query_embedding": query_vector,
+                "match_threshold": 0.3,
+                "match_count": 5,
+                "filter_agent_id": agent_id
+            }
         try:
             res = db.rpc("match_documents", params).execute()
             if res.data:
@@ -130,9 +141,10 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     tools_def = get_tools_for_agent(agent_id, [])
     print(f"DEBUG: Binding {len(tools_def)} tools to agent {agent_id}")
 
-    # Determine API Key and Model
-    # Fallback to system key if agent specific key is not provided
-    api_key = agent.get('api_key') or settings.GOOGLE_API_KEY
+    tools_def = get_tools_for_agent(agent_id, [])
+    print(f"DEBUG: Binding {len(tools_def)} tools to agent {agent_id}")
+
+    # Determine Model (Key already determined above)
     model_name = agent.get('model') or "gemini-2.5-flash-lite"
     
     if not api_key:

@@ -7,10 +7,8 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from app.core.config import settings
 
 # Initialize Embedding Model
-embeddings_model = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004",
-    google_api_key=settings.GOOGLE_API_KEY
-)
+# Initialize Embedding Model (Moved to function scope)
+# embeddings_model = GoogleGenerativeAIEmbeddings(...)
 
 # Initialize Text Splitter
 text_splitter = RecursiveCharacterTextSplitter(
@@ -88,10 +86,24 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
         print(f"Generated {len(chunks)} chunks")
 
         # 5. Generate Embeddings & Prepare for DB
-        # We can batch embed, but for simplicity/reliability we'll do it via the LangChain wrapper which handles batching usually.
-        # Actually LangChain's embed_documents takes a list.
-        
         try:
+            # 5a. Fetch Agent's API Key
+            agent_record = db.table("agents").select("api_key").eq("id", agent_id).execute()
+            if not agent_record.data or not agent_record.data[0].get("api_key"):
+                # Fallback to global if set, else error
+                api_key = settings.GOOGLE_API_KEY
+                if not api_key:
+                    print(f"Error: No API Key found for agent {agent_id} and no global key set")
+                    return
+            else:
+                api_key = agent_record.data[0]["api_key"]
+
+            # 5b. Initialize Embeddings Model with Agent's Key
+            embeddings_model = GoogleGenerativeAIEmbeddings(
+                model="models/text-embedding-004",
+                google_api_key=api_key
+            )
+            
             vectors = embeddings_model.embed_documents(chunks)
         except Exception as e:
             print(f"Error generating embeddings: {e}")

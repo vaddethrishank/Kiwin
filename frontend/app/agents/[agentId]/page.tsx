@@ -33,6 +33,7 @@ interface Agent {
     model: string
     system_prompt: string
     tools?: string[]
+    api_key?: string
     created_at: string
 }
 
@@ -53,7 +54,8 @@ export default function AgentDetailsPage() {
         name: "",
         role: "",
         description: "",
-        system_prompt: ""
+        system_prompt: "",
+        api_key: ""
     })
 
     // Widget Customization State
@@ -87,7 +89,8 @@ export default function AgentDetailsPage() {
                     name: data.name,
                     role: data.role,
                     description: data.description || "",
-                    system_prompt: data.system_prompt || ""
+                    system_prompt: data.system_prompt || "",
+                    api_key: data.api_key || ""
                 })
             } catch (error) {
                 toast({
@@ -230,6 +233,15 @@ export default function AgentDetailsPage() {
                                     <CardDescription>Select the AI model and adjust parameters.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Gemini API Key</label>
+                                        <Input
+                                            type="password"
+                                            value={formData.api_key}
+                                            onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+                                            placeholder="Update API Key"
+                                        />
+                                    </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Model</label>
                                         <Input defaultValue={agent.model} disabled />
