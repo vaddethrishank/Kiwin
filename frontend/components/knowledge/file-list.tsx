@@ -5,7 +5,7 @@ import { Trash2, FileText, File as FileIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { createClient } from "@/lib/supabase/client"
-import { formatBytes } from "@/lib/utils" // Assuming this exists or I'll implement inline if needed
+import { formatBytes, getApiUrl } from "@/lib/utils"
 
 interface FileItem {
     id: string
@@ -34,7 +34,7 @@ export function FileList({ agentId, refreshTrigger }: FileListProps) {
             const { data: { session } } = await supabase.auth.getSession()
             if (!session) return
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/files/?agent_id=${agentId}`, {
+            const res = await fetch(`${getApiUrl()}/api/v1/files/?agent_id=${agentId}`, {
                 headers: {
                     "Authorization": `Bearer ${session.access_token}`
                 }
@@ -56,7 +56,7 @@ export function FileList({ agentId, refreshTrigger }: FileListProps) {
             const { data: { session } } = await supabase.auth.getSession()
             if (!session) return
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/files/${fileId}`, {
+            const res = await fetch(`${getApiUrl()}/api/v1/files/${fileId}`, {
                 method: "DELETE",
                 headers: {
                     "Authorization": `Bearer ${session.access_token}`

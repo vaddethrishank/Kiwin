@@ -7,6 +7,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { useToast } from "@/components/ui/use-toast"
 import { Bot, Send, User } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { getApiUrl } from "@/lib/utils"
 
 interface Message {
     role: "user" | "assistant"
@@ -39,7 +40,7 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
                 const { data: { session } } = await supabase.auth.getSession()
                 if (!session) return
 
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/chat/${agentId}`, {
+                const res = await fetch(`${getApiUrl()}/api/v1/chat/${agentId}`, {
                     headers: {
                         "Authorization": `Bearer ${session.access_token}`
                     }
@@ -68,7 +69,7 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
             const { data: { session } } = await supabase.auth.getSession()
             if (!session) throw new Error("Not authenticated")
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/chat/`, {
+            const res = await fetch(`${getApiUrl()}/api/v1/chat/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

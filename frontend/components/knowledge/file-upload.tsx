@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import { createClient } from "@/lib/supabase/client"
+import { getApiUrl } from "@/lib/utils"
 
 interface FileUploadProps {
     agentId: string
@@ -33,7 +34,7 @@ export function FileUpload({ agentId, onUploadComplete }: FileUploadProps) {
             formData.append("file", file)
             formData.append("agent_id", agentId)
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/files/upload`, {
+            const res = await fetch(`${getApiUrl()}/api/v1/files/upload`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${session.access_token}`

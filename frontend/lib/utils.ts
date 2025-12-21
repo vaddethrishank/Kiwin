@@ -16,3 +16,8 @@ export function formatBytes(bytes: number, decimals = 2) {
 
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
 }
+
+export function getApiUrl() {
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return url.replace(/\/$/, '');
+}

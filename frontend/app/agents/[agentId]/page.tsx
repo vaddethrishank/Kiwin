@@ -24,6 +24,7 @@ import { createClient } from "@/lib/supabase/client"
 import { FileUpload } from "@/components/knowledge/file-upload"
 import { FileList } from "@/components/knowledge/file-list"
 import { ChatInterface } from "@/components/chat/chat-interface"
+import { getApiUrl } from "@/lib/utils"
 
 interface Agent {
     id: string
@@ -73,7 +74,7 @@ export default function AgentDetailsPage() {
             }
 
             try {
-                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/agents/${agentId}`, {
+                const res = await fetch(`${getApiUrl()}/api/v1/agents/${agentId}`, {
                     headers: {
                         "Authorization": `Bearer ${session.access_token}`
                     }
@@ -113,7 +114,7 @@ export default function AgentDetailsPage() {
         if (!session) return
 
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/agents/${agentId}`, {
+            const res = await fetch(`${getApiUrl()}/api/v1/agents/${agentId}`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
