@@ -339,6 +339,7 @@ export default function AgentDetailsPage() {
   data-agent-id="${agent.id}"
   data-color="${widgetColor}"
   data-icon-size="${iconSize}"
+  data-api-url="${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}"
 ></script>`}
                                         </code>
                                     </pre>
@@ -352,6 +353,7 @@ export default function AgentDetailsPage() {
   data-agent-id="${agent.id}"
   data-color="${widgetColor}"
   data-icon-size="${iconSize}"
+  data-api-url="${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}"
 ></script>`
                                                 navigator.clipboard.writeText(script)
                                                 toast({ title: "Copied!", description: "Script copied to clipboard" })
