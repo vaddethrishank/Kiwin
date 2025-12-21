@@ -47,12 +47,7 @@ export default async function RootLayout({
           </main>
         </ToastProvider>
 
-        <script
-          src="http://localhost:3000/widget.js"
-          data-agent-id="27b998de-4e22-466f-9105-0d666acd7862"
-          data-color="#000000"
-          data-icon-size="40"
-        ></script>
+
       </body>
     </html>
   );
