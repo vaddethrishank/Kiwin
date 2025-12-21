@@ -49,7 +49,7 @@ export function Navbar({ user: initialUser }: NavbarProps) {
 
     return (
         <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-            <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-8">
+            <div className="container flex h-14 max-w-screen-2xl items-center justify-between px-8 mx-auto">
                 <div className="flex items-center gap-6">
                     <Link href="/" className="mr-6 flex items-center space-x-2">
                         <span className="font-bold text-xl inline-block bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
