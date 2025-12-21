@@ -1,6 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
+import { getApiUrl } from '@/lib/utils'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -48,7 +49,7 @@ export default function NewAgentPage() {
             const { data: { session } } = await supabase.auth.getSession()
             if (!session) throw new Error('Not authenticated')
 
-            const res = await fetch('http://localhost:8000/api/v1/agents/', {
+            const res = await fetch(`${getApiUrl()}/api/v1/agents/`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

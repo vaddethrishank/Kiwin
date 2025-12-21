@@ -1,6 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
+import { getApiUrl } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,7 +28,7 @@ export default function DashboardPage() {
             if (!session) return
 
             // Fetch from our backend API, passing the Supabase JWT
-            const res = await fetch('http://localhost:8000/api/v1/agents/', {
+            const res = await fetch(`${getApiUrl()}/api/v1/agents/`, {
                 headers: {
                     'Authorization': `Bearer ${session.access_token}`
                 }
