@@ -11,7 +11,8 @@ app = FastAPI(
 # Set all CORS enabled origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",")],
+    # allow_origins=[origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",")],
+    allow_origin_regex=".*", # Allow ALL origins (easiest for public widgets)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
