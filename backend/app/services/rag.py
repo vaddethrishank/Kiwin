@@ -3,20 +3,17 @@ import pypdf
 from typing import List
 from supabase import create_client, Client
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from app.core.config import settings
 
-# Initialize Embedding Model
-# Uses local HuggingFace model (BAAI/bge-base-en-v1.5, 768-dim) - free, no API key required
+# FastEmbed model (ONNX-based, ~150MB — fits Render free tier, 768-dim matches Supabase)
 _embeddings_model = None
 
 def get_embeddings_model():
     global _embeddings_model
     if _embeddings_model is None:
-        _embeddings_model = HuggingFaceEmbeddings(
-            model_name="BAAI/bge-base-en-v1.5",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True}
+        _embeddings_model = FastEmbedEmbeddings(
+            model_name="BAAI/bge-base-en-v1.5"
         )
     return _embeddings_model
 
@@ -108,7 +105,7 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
             else:
                 api_key = agent_record.data[0]["api_key"]
 
-            # Use local HuggingFace embeddings (free, no API key needed, 768-dim matches Supabase column)
+            # Use FastEmbed (ONNX, ~150MB, no PyTorch needed)
             embeddings_model = get_embeddings_model()
             
             vectors = embeddings_model.embed_documents(chunks)

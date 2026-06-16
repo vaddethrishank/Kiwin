@@ -1,5 +1,5 @@
 from langchain_groq import ChatGroq
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 # Use langchain_core for newer versions compatibility
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -8,16 +8,14 @@ from app.core.config import settings
 from supabase import create_client, Client
 from app.services.tools import get_tools_for_agent, execute_tool
 
-# Shared HuggingFace embedding model (runs locally, free, 768-dim - matches Supabase vector column)
+# Shared FastEmbed model (ONNX-based, ~150MB — fits Render free tier, 768-dim matches Supabase)
 _embeddings_model = None
 
 def get_embeddings_model():
     global _embeddings_model
     if _embeddings_model is None:
-        _embeddings_model = HuggingFaceEmbeddings(
-            model_name="BAAI/bge-base-en-v1.5",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True}
+        _embeddings_model = FastEmbedEmbeddings(
+            model_name="BAAI/bge-base-en-v1.5"
         )
     return _embeddings_model
 
@@ -110,7 +108,7 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     
     if api_key:
         try:
-            # Use local HuggingFace embeddings (free, no API key needed, 768-dim)
+            # Use local FastEmbed (ONNX, ~150MB, no PyTorch needed)
             embeddings = get_embeddings_model()
             query_vector = embeddings.embed_query(message)
         except Exception as e:
