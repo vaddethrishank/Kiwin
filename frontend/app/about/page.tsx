@@ -89,7 +89,7 @@ export default function AboutPage() {
                     <ul className="grid gap-4 md:grid-cols-2">
                         <li className="p-4 border rounded-lg">
                             <strong className="block mb-1">Model Selection</strong>
-                            <span className="text-muted-foreground text-sm">Switch between Gemini 1.5 Flash (faster, cheaper) and Pro (smarter, detailed) based on your needs.</span>
+                            <span className="text-muted-foreground text-sm">Switch between Groq-powered models like Llama 3.3 70B (smarter) and Llama 3.1 8B Instant (faster) — all free on Groq's tier.</span>
                         </li>
                         <li className="p-4 border rounded-lg">
                             <strong className="block mb-1">Custom Tools</strong>

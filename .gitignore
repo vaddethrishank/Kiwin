@@ -21,3 +21,9 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# Docs / exports
+project_structure.md
+project_structure_export.html
+kiwin_flow_diagram.html
+kiwin_docs.md

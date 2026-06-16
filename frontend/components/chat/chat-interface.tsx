@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Bot, Send, User } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { getApiUrl } from "@/lib/utils"
+import ReactMarkdown from "react-markdown"
 
 interface Message {
     role: "user" | "assistant"
@@ -140,12 +141,26 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
                         )}
 
                         <div
-                            className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm shadow-sm ${msg.role === "user"
-                                ? "bg-primary text-primary-foreground rounded-br-none"
-                                : "bg-card border text-card-foreground rounded-bl-none"
-                                }`}
+                            className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm shadow-sm ${
+                                msg.role === "user"
+                                    ? "bg-primary text-primary-foreground rounded-br-none"
+                                    : "bg-card border text-card-foreground rounded-bl-none"
+                            }`}
                         >
-                            <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                            {msg.role === "user" ? (
+                                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                            ) : (
+                                <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed
+                                    [&>p]:mb-2 [&>p:last-child]:mb-0
+                                    [&>ul]:mb-2 [&>ul]:pl-4 [&>ul>li]:list-disc
+                                    [&>ol]:mb-2 [&>ol]:pl-4 [&>ol>li]:list-decimal
+                                    [&>strong]:font-semibold
+                                    [&>code]:bg-muted [&>code]:px-1 [&>code]:rounded [&>code]:text-xs
+                                    [&>pre]:bg-muted [&>pre]:p-2 [&>pre]:rounded [&>pre]:text-xs [&>pre]:overflow-x-auto
+                                ">
+                                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                </div>
+                            )}
                         </div>
 
                         {msg.role === "user" && (

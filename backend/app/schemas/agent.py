@@ -8,7 +8,7 @@ class AgentBase(BaseModel):
     name: str
     role: str = "assistant"
     description: Optional[str] = None
-    model: str = "gemini-2.5-flash-lite"
+    model: str = "llama-3.3-70b-versatile"
     system_prompt: Optional[str] = None
     tools: List[str] = []
     api_key: Optional[str] = None

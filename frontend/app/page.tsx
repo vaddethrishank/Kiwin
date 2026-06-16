@@ -71,7 +71,7 @@ export default async function Home() {
             <FeatureCard
               icon={Globe}
               title="Multi-Model Support"
-              description="Switch between advanced models like Gemini 1.5 Pro or Flash to balance performance and cost."
+              description="Switch between powerful free Groq models like Llama 3.3 70B or Gemma 2 to balance performance and speed."
             />
             <FeatureCard
               icon={ShieldCheck}

@@ -112,18 +112,18 @@ export default function NewAgentPage() {
 
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
-                                <Label htmlFor="api_key">Gemini API Key</Label>
+                                <Label htmlFor="api_key">Groq API Key</Label>
                                 <HoverCard>
                                     <HoverCardTrigger>
                                         <Info className="h-4 w-4 text-muted-foreground cursor-pointer" />
                                     </HoverCardTrigger>
                                     <HoverCardContent className="w-80">
                                         <div className="space-y-2">
-                                            <h4 className="text-sm font-semibold">How to get a key</h4>
+                                            <h4 className="text-sm font-semibold">How to get a free Groq key</h4>
                                             <ol className="text-xs list-decimal ml-4 space-y-1">
-                                                <li>Go to <a href="https://aistudio.google.com/" target="_blank" className="underline text-blue-500">Google AI Studio</a></li>
-                                                <li>Sign in with your Google account</li>
-                                                <li>Select "Get API Key" on the left</li>
+                                                <li>Go to <a href="https://console.groq.com/" target="_blank" className="underline text-blue-500">console.groq.com</a></li>
+                                                <li>Sign in or create a free account</li>
+                                                <li>Click "API Keys" in the left sidebar</li>
                                                 <li>Click "Create API Key"</li>
                                                 <li>Copy and paste it here</li>
                                             </ol>
@@ -131,19 +131,20 @@ export default function NewAgentPage() {
                                     </HoverCardContent>
                                 </HoverCard>
                             </div>
-                            <Input id="api_key" name="api_key" type="password" placeholder="AIzaSy..." required />
+                            <Input id="api_key" name="api_key" type="password" placeholder="gsk_..." required />
                         </div>
 
                         <div className="space-y-2">
                             <Label htmlFor="model">Model</Label>
-                            <Select name="model" defaultValue="gemini-2.5-flash-lite">
+                            <Select name="model" defaultValue="llama-3.3-70b-versatile">
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select a model" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite - Fast & Cost Effective</SelectItem>
-                                    <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash - Balanced Performance</SelectItem>
-                                    <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro - High Reasoning</SelectItem>
+                                    <SelectItem value="llama-3.3-70b-versatile">Llama 3.3 70B - Best Quality (Free)</SelectItem>
+                                    <SelectItem value="llama-3.1-8b-instant">Llama 3.1 8B Instant - Fast &amp; Lightweight</SelectItem>
+                                    <SelectItem value="gemma2-9b-it">Gemma 2 9B - Balanced Performance</SelectItem>
+                                    <SelectItem value="llama-3.1-70b-versatile">Llama 3.1 70B - High Reasoning</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

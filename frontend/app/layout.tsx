@@ -49,7 +49,7 @@ export default async function RootLayout({
 
         <script
           src={`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/widget.js`}
-          data-agent-id="27b998de-4e22-466f-9105-0d666acd7862"
+          data-agent-id="8f9cf23b-416d-41ea-b791-4910bd7e9707"
           data-color="#000000"
           data-icon-size="40"
           data-api-url={process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}

@@ -1,4 +1,5 @@
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 # Use langchain_core for newer versions compatibility
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -7,7 +8,18 @@ from app.core.config import settings
 from supabase import create_client, Client
 from app.services.tools import get_tools_for_agent, execute_tool
 
-# Global Gemini init removed - instantiated dynamically per request
+# Shared HuggingFace embedding model (runs locally, free, 768-dim - matches Supabase vector column)
+_embeddings_model = None
+
+def get_embeddings_model():
+    global _embeddings_model
+    if _embeddings_model is None:
+        _embeddings_model = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-base-en-v1.5",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True}
+        )
+    return _embeddings_model
 
 # embeddings = GoogleGenerativeAIEmbeddings(
 #     model="models/text-embedding-004", 
@@ -94,15 +106,12 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     context_text = ""
     
     # Determine API Key first (moved up from step 5)
-    api_key = agent.get('api_key') or settings.GOOGLE_API_KEY
+    api_key = agent.get('api_key') or settings.GROQ_API_KEY
     
     if api_key:
         try:
-            # Initialize embeddings with dynamic key
-            embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/text-embedding-004", 
-                google_api_key=api_key
-            )
+            # Use local HuggingFace embeddings (free, no API key needed, 768-dim)
+            embeddings = get_embeddings_model()
             query_vector = embeddings.embed_query(message)
         except Exception as e:
             print(f"Error embedding: {e}")
@@ -145,16 +154,16 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     print(f"DEBUG: Binding {len(tools_def)} tools to agent {agent_id}")
 
     # Determine Model (Key already determined above)
-    model_name = agent.get('model') or "gemini-2.5-flash-lite"
+    model_name = agent.get('model') or "llama-3.3-70b-versatile"
     
     if not api_key:
-        yield "Error: No API Key available for this agent."
+        yield "Error: No Groq API Key available for this agent."
         return
 
     try:
-        llm_dynamic = ChatGoogleGenerativeAI(
+        llm_dynamic = ChatGroq(
             model=model_name,
-            google_api_key=api_key,
+            groq_api_key=api_key,
             temperature=0.7
         )
         llm_node = llm_dynamic.bind_tools(tools_def)
@@ -192,8 +201,8 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
             messages.append(response)
             
             # 2. Execute each tool
-            # (Limitation: Only processing the first tool call for simplicity if multiple are somehow generated,
-            # though Gemini usually generates one or parallel. We handle all to be safe but usually it's one turn.)
+            # (Limitation: Only processing the first tool call for simplicity if multiple are somehow generated.
+            # We handle all to be safe but usually it's one turn.)
             
             for tool_call in response.tool_calls:
                 tool_name = tool_call["name"]

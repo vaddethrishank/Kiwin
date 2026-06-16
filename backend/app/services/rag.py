@@ -3,12 +3,22 @@ import pypdf
 from typing import List
 from supabase import create_client, Client
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from app.core.config import settings
 
 # Initialize Embedding Model
-# Initialize Embedding Model (Moved to function scope)
-# embeddings_model = GoogleGenerativeAIEmbeddings(...)
+# Uses local HuggingFace model (BAAI/bge-base-en-v1.5, 768-dim) - free, no API key required
+_embeddings_model = None
+
+def get_embeddings_model():
+    global _embeddings_model
+    if _embeddings_model is None:
+        _embeddings_model = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-base-en-v1.5",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True}
+        )
+    return _embeddings_model
 
 # Initialize Text Splitter
 text_splitter = RecursiveCharacterTextSplitter(
@@ -90,19 +100,16 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
             # 5a. Fetch Agent's API Key
             agent_record = db.table("agents").select("api_key").eq("id", agent_id).execute()
             if not agent_record.data or not agent_record.data[0].get("api_key"):
-                # Fallback to global if set, else error
-                api_key = settings.GOOGLE_API_KEY
+                # Fallback to global Groq key, else error
+                api_key = settings.GROQ_API_KEY
                 if not api_key:
-                    print(f"Error: No API Key found for agent {agent_id} and no global key set")
+                    print(f"Error: No Groq API Key found for agent {agent_id} and no global key set")
                     return
             else:
                 api_key = agent_record.data[0]["api_key"]
 
-            # 5b. Initialize Embeddings Model with Agent's Key
-            embeddings_model = GoogleGenerativeAIEmbeddings(
-                model="models/text-embedding-004",
-                google_api_key=api_key
-            )
+            # Use local HuggingFace embeddings (free, no API key needed, 768-dim matches Supabase column)
+            embeddings_model = get_embeddings_model()
             
             vectors = embeddings_model.embed_documents(chunks)
         except Exception as e:
