@@ -48,7 +48,7 @@ export default async function RootLayout({
         </ToastProvider>
 
         <script
-          src={`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/widget.js`}
+          src="/widget.js"
           data-agent-id="8f9cf23b-416d-41ea-b791-4910bd7e9707"
           data-color="#000000"
           data-icon-size="40"
