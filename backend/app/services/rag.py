@@ -3,16 +3,18 @@ import pypdf
 from typing import List
 from supabase import create_client, Client
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from app.core.config import settings
 
-# FastEmbed model (ONNX-based, ~150MB — fits Render free tier, 768-dim matches Supabase)
+# HuggingFace Inference API - pure HTTP calls, NO local model, zero extra RAM
+# Model: BAAI/bge-base-en-v1.5 → 768-dim (matches Supabase vector column)
 _embeddings_model = None
 
 def get_embeddings_model():
     global _embeddings_model
     if _embeddings_model is None:
-        _embeddings_model = FastEmbedEmbeddings(
+        _embeddings_model = HuggingFaceInferenceAPIEmbeddings(
+            api_key=settings.HF_TOKEN or "",
             model_name="BAAI/bge-base-en-v1.5"
         )
     return _embeddings_model

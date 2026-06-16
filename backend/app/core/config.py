@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     
     # Groq
     GROQ_API_KEY: str | None = None
+
+    # HuggingFace (for Inference API embeddings - free, no local model needed)
+    HF_TOKEN: str | None = None
     
     # Optional: Service Role Key for backend administration (bypasses RLS)
     SUPABASE_SERVICE_ROLE_KEY: str | None = None

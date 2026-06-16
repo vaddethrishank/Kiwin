@@ -5,7 +5,6 @@ langchain-groq
 langchain
 langchain-core
 langchain-community>=0.0.10
-fastembed
 python-multipart>=0.0.9
 numexpr
 tavily-python
@@ -16,3 +15,4 @@ pydantic-settings>=2.1.0
 httpx>=0.26.0
 pypdf>=4.0.0
 tiktoken>=0.5.2
+langchain-text-splitters

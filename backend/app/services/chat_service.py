@@ -1,5 +1,5 @@
 from langchain_groq import ChatGroq
-from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 # Use langchain_core for newer versions compatibility
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -8,21 +8,18 @@ from app.core.config import settings
 from supabase import create_client, Client
 from app.services.tools import get_tools_for_agent, execute_tool
 
-# Shared FastEmbed model (ONNX-based, ~150MB — fits Render free tier, 768-dim matches Supabase)
+# HuggingFace Inference API embeddings - pure HTTP calls, NO local model, zero extra RAM
+# Model: BAAI/bge-base-en-v1.5 → 768-dim (matches Supabase vector column)
 _embeddings_model = None
 
 def get_embeddings_model():
     global _embeddings_model
     if _embeddings_model is None:
-        _embeddings_model = FastEmbedEmbeddings(
+        _embeddings_model = HuggingFaceInferenceAPIEmbeddings(
+            api_key=settings.HF_TOKEN or "",
             model_name="BAAI/bge-base-en-v1.5"
         )
     return _embeddings_model
-
-# embeddings = GoogleGenerativeAIEmbeddings(
-#     model="models/text-embedding-004", 
-#     google_api_key=settings.GOOGLE_API_KEY
-# )
 
 def get_db() -> Client:
     # Always use Service Role for backend processing to ensure we can read documents
