@@ -22,7 +22,8 @@ interface ChatInterfaceProps {
 export function ChatInterface({ agentId }: ChatInterfaceProps) {
     const [messages, setMessages] = useState<Message[]>([])
     const [input, setInput] = useState("")
-    const [isLoading, setIsLoading] = useState(false)
+    const [isLoading, setIsLoading] = useState(false)   // waiting for first token
+    const [isStreaming, setIsStreaming] = useState(false) // tokens are arriving
     const scrollRef = useRef<HTMLDivElement>(null)
     const { toast } = useToast()
 
@@ -58,12 +59,12 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
     }, [agentId])
 
     const handleSend = async () => {
-        if (!input.trim() || isLoading) return
+        if (!input.trim() || isLoading || isStreaming) return
 
         const userMessage: Message = { role: "user", content: input }
         setMessages(prev => [...prev, userMessage])
         setInput("")
-        setIsLoading(true)
+        setIsLoading(true)  // show bouncing dots while waiting for first token
 
         try {
             const supabase = createClient()
@@ -83,24 +84,30 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
             })
 
             if (!res.ok) throw new Error("Failed to send message")
-
             if (!res.body) throw new Error("No response body")
 
             const reader = res.body.getReader()
             const decoder = new TextDecoder()
             let aiMessage = ""
+            let firstChunk = true
 
-            // Create placeholder for AI message
+            // Add empty placeholder for the AI message
             setMessages(prev => [...prev, { role: "assistant", content: "" }])
 
             while (true) {
                 const { done, value } = await reader.read()
                 if (done) break
 
+                // First token arrived — switch from "waiting" to "streaming" mode
+                if (firstChunk) {
+                    setIsLoading(false)
+                    setIsStreaming(true)
+                    firstChunk = false
+                }
+
                 const text = decoder.decode(value, { stream: true })
                 aiMessage += text
 
-                // Update the last message (AI's response) with new chunk
                 setMessages(prev => {
                     const newMsgs = [...prev]
                     newMsgs[newMsgs.length - 1] = { role: "assistant", content: aiMessage }
@@ -116,6 +123,7 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
             })
         } finally {
             setIsLoading(false)
+            setIsStreaming(false)
         }
     }
 
@@ -158,7 +166,12 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
                                     [&>code]:bg-muted [&>code]:px-1 [&>code]:rounded [&>code]:text-xs
                                     [&>pre]:bg-muted [&>pre]:p-2 [&>pre]:rounded [&>pre]:text-xs [&>pre]:overflow-x-auto
                                 ">
-                                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                    <ReactMarkdown>
+                                        {/* Append blinking cursor while this is the last streaming message */}
+                                        {isStreaming && idx === messages.length - 1
+                                            ? msg.content + "▊"
+                                            : msg.content}
+                                    </ReactMarkdown>
                                 </div>
                             )}
                         </div>
@@ -171,6 +184,7 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
                     </div>
                 ))}
 
+                {/* Bouncing dots: only while waiting for the VERY FIRST token */}
                 {isLoading && (
                     <div className="flex gap-3">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
@@ -196,10 +210,10 @@ export function ChatInterface({ agentId }: ChatInterfaceProps) {
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         placeholder="Type your message..."
-                        disabled={isLoading}
+                        disabled={isLoading || isStreaming}
                         className="flex-1"
                     />
-                    <Button type="submit" disabled={isLoading} size="icon">
+                    <Button type="submit" disabled={isLoading || isStreaming} size="icon">
                         <Send className="w-4 h-4" />
                     </Button>
                 </form>

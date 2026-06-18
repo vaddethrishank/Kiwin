@@ -4,12 +4,30 @@
   const PRIMARY_COLOR = SCRIPT_TAG.getAttribute('data-color') || '#000';
   const ICON_SIZE = SCRIPT_TAG.getAttribute('data-icon-size') || '60';
   const POSITION = SCRIPT_TAG.getAttribute('data-position') || 'right'; // 'right' or 'left'
-  const API_BASE_URL = SCRIPT_TAG.getAttribute('data-api-url') || "http://localhost:8000";
+  const API_BASE_URL = (SCRIPT_TAG.getAttribute('data-api-url') || "http://localhost:8000").replace(/\/+$/, '');
   const API_URL = `${API_BASE_URL}/api/v1/public/chat`;
 
   if (!AGENT_ID) {
     console.error("Kiwin Widget: Agent ID is missing.");
     return;
+  }
+
+  // Lightweight markdown → HTML renderer (no dependencies)
+  function markdownToHtml(md) {
+    return md
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      // Bold **text** or __text__
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
+      // Italic *text* or _text_
+      .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+      .replace(/_([^_\n]+)_/g, '<em>$1</em>')
+      // Inline code `code`
+      .replace(/`([^`]+)`/g, '<code style="background:#f0f0f0;padding:1px 5px;border-radius:3px;font-size:12px;font-family:monospace">$1</code>')
+      // Bullet list items
+      .replace(/^[\*\-] (.+)$/gm, '<li style="margin-left:16px;list-style:disc">$1</li>')
+      // Line breaks
+      .replace(/\n/g, '<br>');
   }
 
   // Styles
@@ -256,14 +274,14 @@
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let aiText = "";
-      aiDiv.innerText = "";
+      aiDiv.innerText = "";  // clear the "..." placeholder
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value);
         aiText += chunk;
-        aiDiv.innerText = aiText;
+        aiDiv.innerHTML = markdownToHtml(aiText);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
 
