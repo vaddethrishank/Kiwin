@@ -1,0 +1,108 @@
+=========================================
+KIWIN - THE NO-CODE AI AGENT PLATFORM
+=========================================
+
+1. OVERVIEW & VISION
+-------------------
+Kiwin is a comprehensive, no-code AI Agent Platform designed to democratize the creation of intelligent assistants. It allows users to build, train, deploy, and embed custom AI agents on their websites without writing complex code.
+
+Main Motto: 
+"Each time after creating a website, no need to build a chatbot for everything. One simple snippet can solve it, and it is absolutely free."
+
+Creator & Owner: 
+Vadde Thrishank (Contact Email: thrishank2005@gmail.com)
+
+Core Philosophy:
+* Simplicity: Build powerful agents with zero coding experience.
+* Zero Cost: The platform is absolutely free to use.
+* Single-Snippet Integration: Embed the chatbot anywhere with a single line of script code.
+
+
+2. KEY FEATURES
+---------------
+* Custom Agent Creation: Create multiple agents, each configured with unique names, personas (system prompts), models, and credentials.
+* Knowledge Base (RAG): Train your agent using PDF documents. The agent automatically references uploaded documents to answer questions with precision.
+* Embeddable Chat Widget: Customize a chat window's color, size, and screen position, and copy the generated JavaScript snippet to any external website.
+* Live Tools: Enable agents to search the web in real-time or perform complex mathematical calculations.
+* Ultra-Fast Streaming: Responses are streamed token-by-token in real-time for an instant user experience.
+
+
+3. CREATING AND CONFIGURING AN AGENT
+------------------------------------
+To create a custom AI assistant in Kiwin, follow these steps:
+1. Log in to the Kiwin dashboard.
+2. Click on "Create Agent".
+3. Provide a Name for your agent (e.g., "Kiwin Support Assistant").
+4. Define the Role or Persona (System Prompt). This tells the agent how to behave, what tone to use, and what its goals are (e.g., "You are an expert customer support agent for our e-commerce site. Be friendly and direct.").
+5. Select the LLM Model:
+   - Groq-powered high-performance models (such as Llama 3.3 70B) provide blazing-fast inference speeds.
+6. Provide a Groq API Key:
+   - Enter your own Groq API key (which is completely free and can be obtained from console.groq.com) to power your agent.
+7. Configure Tools (Optional):
+   - Web Search: Toggle to let the agent search the internet via Tavily for real-time information.
+   - Calculator: Toggle to enable the agent to solve math equations accurately.
+8. Click "Save" to initialize the agent.
+
+
+4. MANAGING THE KNOWLEDGE BASE (HYBRID RAG)
+-------------------------------------------
+You can make your agent highly knowledgeable about your business by uploading documents:
+* PDF Uploads: Inside the agent dashboard, navigate to the "Knowledge Base" or "Files" section and upload PDF documents containing your product info, documentation, or company policies.
+* Automatic Processing: Kiwin uses PyMuPDF to extract text from the PDF file, splits the text into manageable chunks, generates dense semantic embeddings using BAAI/bge-base-en-v1.5, and stores them in Supabase.
+* How Retrieval Works: When a visitor asks a question, Kiwin uses a advanced Hybrid Search pipeline:
+  - Vector Search: Searches for dense semantic matches to understand the intent and meaning of the user query.
+  - Full-Text Search (BM25): Searches PostgreSQL `tsvector` columns for exact keyword matches.
+  - Reciprocal Rank Fusion (RRF): Combines the results of Vector Search and Keyword Search to retrieve the absolute best chunks of context.
+  - Contextual Generation: The retrieved context is passed directly to the LLM along with the user's message and chat history to generate a precise, factual response.
+
+
+5. EMBEDDING THE CHAT WIDGET
+----------------------------
+You can embed your customized AI agent on any website (HTML, WordPress, React, Webflow, Shopify, etc.):
+* Customization Options:
+  - Primary Color: Select a color hex code matching your website's branding.
+  - Icon Size: Set the scale of the floating chat bubble launcher.
+  - Position: Position the widget on the bottom-right or bottom-left of the screen.
+* Copying the Script:
+  - Copy the auto-generated script tag from the "Embed" tab in the dashboard.
+  - The script looks similar to:
+    <script src="https://kiwin.app/widget.js" data-agent-id="YOUR_AGENT_ID" data-color="#YOUR_HEX_COLOR" data-position="right"></script>
+  - Paste this snippet inside the <body> or <head> tag of your website. The chat bubble launcher will instantly appear on your site.
+
+
+6. BUILT-IN AGENT TOOLS
+-----------------------
+* Web Search Tool (Tavily): Allows your agent to query the internet in real-time. This is perfect for agents that need to look up current pricing, stock market trends, weather updates, or real-time news.
+* Calculator Tool: Ensures that the agent does not hallucinate math equations. When a user asks a mathematical question, the agent routes it to the Calculator tool for flawless computations.
+
+
+7. SECURITY, PRIVACY & DATA ISOLATION
+-------------------------------------
+Kiwin is designed with security in mind:
+* Row-Level Security (RLS): All database operations on Supabase enforce RLS.
+* Strict Data Isolation: A logged-in user can only see, modify, or delete the agents and files they created. Your custom files, API keys, and agent prompts are entirely private and invisible to other users.
+* Widget Access: Site visitors interacting with your embedded widget can only chat with the specific agent and access the knowledge base documents assigned to that agent. They have no way to access your database credentials or other documents.
+
+
+8. FREQUENTLY ASKED QUESTIONS (FAQ)
+-----------------------------------
+Q: Is Kiwin really free?
+A: Yes! Kiwin is 100% free to use. You only need a free Groq API key to power your agent's LLM model.
+
+Q: How do I get a Groq API Key?
+A: You can sign up for a free account at https://console.groq.com/ and create an API key in seconds.
+
+Q: What file formats are supported for the knowledge base?
+A: Currently, Kiwin supports PDF file uploads. The backend uses PyMuPDF for high-accuracy text extraction from these documents.
+
+Q: Can I embed the widget on multiple websites?
+A: Yes. You can paste the exact same script snippet on as many websites and domains as you want.
+
+Q: How does the agent remember previous chat messages?
+A: Kiwin maintains chat session history. It pulls previous messages dynamically and provides them as chat history context to the LLM model so the conversation flows naturally.
+
+Q: What happens if the agent doesn't know the answer?
+A: When trained via a PDF knowledge base, the agent will prioritize the uploaded facts. If you define its persona to do so, it can state that it doesn't know rather than making up information. You can also equip it with the Web Search tool to look up missing details.
+
+Q: Who is the creator of Kiwin?
+A: Kiwin was built and is maintained by Vadde Thrishank (thrishank2005@gmail.com).

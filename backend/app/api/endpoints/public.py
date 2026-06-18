@@ -23,10 +23,15 @@ async def public_chat(request: PublicChatRequest):
         generate_response(
             agent_id=request.agent_id,
             message=request.message,
-            user_id=request.session_id, # Reuse session_id as user_id for anonymous users
+            user_id=request.session_id,
             is_public=True
         ),
-        media_type="text/event-stream"
+        media_type="text/plain",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        }
     )
 @router.get("/agents/{agent_id}")
 async def get_public_agent_details(agent_id: str):

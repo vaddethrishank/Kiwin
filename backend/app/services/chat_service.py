@@ -1,6 +1,6 @@
+import asyncio
 from langchain_groq import ChatGroq
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-# Use langchain_core for newer versions compatibility
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -35,6 +35,43 @@ def is_valid_uuid(val):
     except ValueError:
         return False
 
+# ---------------------------------------------------------------------------
+# Internal sync helpers — called via asyncio.to_thread to avoid blocking the
+# event loop while Supabase or the HuggingFace API does network I/O.
+# ---------------------------------------------------------------------------
+
+def _fetch_agent_sync(db: Client, agent_id: str):
+    return db.table("agents").select(
+        "name, role, description, system_prompt, tools, model, api_key"
+    ).eq("id", agent_id).single().execute()
+
+def _fetch_history_sync(db: Client, agent_id: str, user_id: str, is_public: bool):
+    query = db.table("messages").select("role, content").eq("agent_id", agent_id)
+    if not is_public and is_valid_uuid(user_id):
+        query = query.eq("user_id", user_id)
+    else:
+        query = query.eq("session_id", user_id)
+    return query.order("created_at", desc=True).limit(10).execute()
+
+def _embed_query_sync(message: str):
+    return get_embeddings_model().embed_query(message)
+
+def _rpc_hybrid_search_sync(db: Client, params: dict):
+    return db.rpc("hybrid_search", params).execute()
+
+def _insert_message_sync(db: Client, msg_data: dict):
+    return db.table("messages").insert(msg_data).execute()
+
+def _fetch_history_50_sync(db: Client, agent_id: str, user_id: str, is_public: bool):
+    query = db.table("messages").select("role, content").eq("agent_id", agent_id)
+    if not is_public and is_valid_uuid(user_id):
+        query = query.eq("user_id", user_id)
+    else:
+        query = query.eq("session_id", user_id)
+    return query.order("created_at", desc=True).limit(50).execute()
+
+# ---------------------------------------------------------------------------
+
 async def get_chat_history(agent_id: str, user_id: str, is_public: bool = False):
     """
     Fetch the last 50 messages for the chat UI.
@@ -42,15 +79,7 @@ async def get_chat_history(agent_id: str, user_id: str, is_public: bool = False)
     """
     db = get_db()
     try:
-        query = db.table("messages").select("role, content").eq("agent_id", agent_id)
-        
-        if not is_public and is_valid_uuid(user_id):
-            query = query.eq("user_id", user_id)
-        else:
-            # It's an anonymous session ID
-            query = query.eq("session_id", user_id)
-            
-        res = query.order("created_at", desc=True).limit(50).execute()
+        res = await asyncio.to_thread(_fetch_history_50_sync, db, agent_id, user_id, is_public)
         # Return in chronological order
         return res.data[::-1] if res.data else []
     except Exception as e:
@@ -61,31 +90,26 @@ async def get_chat_history(agent_id: str, user_id: str, is_public: bool = False)
 async def generate_response(agent_id: str, message: str, user_id: str, is_public: bool = False):
     """
     RAG + Agents Logic:
-    1. Fetch Agent & Tools
-    2. RAG Context
+    1. Fetch Agent & Tools  (parallel with history fetch)
+    2. RAG Context          (embedding offloaded to thread)
     3. Agentic Loop (Reason -> Tool -> Result -> Answer)
     """
     db = get_db()
-    
+
+    # ── 1 & 2. Fetch agent + history IN PARALLEL ──────────────────────────
     try:
-        agent_res = db.table("agents").select("name, role, description, system_prompt, tools, model, api_key").eq("id", agent_id).single().execute()
+        agent_task = asyncio.to_thread(_fetch_agent_sync, db, agent_id)
+        history_task = asyncio.to_thread(_fetch_history_sync, db, agent_id, user_id, is_public)
+        agent_res, history_res = await asyncio.gather(agent_task, history_task)
         agent = agent_res.data
     except Exception as e:
         print(f"Error fetching agent: {e}")
-        yield f"Error: Could not find agent."
+        yield "Error: Could not find agent."
         return
 
-    # 2. Fetch Chat History (Last 10 messages)
+    # Build past messages from history result
     past_messages = []
     try:
-        query = db.table("messages").select("role, content").eq("agent_id", agent_id)
-        
-        if not is_public and is_valid_uuid(user_id):
-            query = query.eq("user_id", user_id)
-        else:
-            query = query.eq("session_id", user_id)
-            
-        history_res = query.order("created_at", desc=True).limit(10).execute()
         raw_msgs = history_res.data[::-1] if history_res.data else []
         for m in raw_msgs:
             if m["role"] == "user":
@@ -93,40 +117,39 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
             else:
                 past_messages.append(AIMessage(content=m["content"]))
     except Exception as e:
-        print(f"Warning: Could not fetch history: {e}")
+        print(f"Warning: Could not process history: {e}")
 
-
-    # 3. Embed Query & Retrieve Context (RAG)
+    # ── 3. Embed Query & Retrieve Context (RAG) ───────────────────────────
     query_vector = None
     context_text = ""
-    
+
     # Determine API Key first (moved up from step 5)
     api_key = agent.get('api_key') or settings.GROQ_API_KEY
-    
+
     if api_key:
         try:
-            # Use local FastEmbed (ONNX, ~150MB, no PyTorch needed)
-            embeddings = get_embeddings_model()
-            query_vector = embeddings.embed_query(message)
+            # Offload blocking HTTP call to a thread pool worker
+            query_vector = await asyncio.to_thread(_embed_query_sync, message)
         except Exception as e:
             print(f"Error embedding: {e}")
 
         if query_vector:
             params = {
-                "query_embedding": query_vector,
-                "match_threshold": 0.3,
-                "match_count": 5,
-                "filter_agent_id": agent_id
+                "query_text":      message,       # BM25 full-text leg
+                "query_embedding": query_vector,  # vector similarity leg
+                "filter_agent_id": agent_id,
+                "match_count":     5,
+                "rrf_k":           60             # RRF smoothing constant
             }
-        try:
-            res = db.rpc("match_documents", params).execute()
-            if res.data:
-                chunks = [item['content'] for item in res.data]
-                context_text = "\n\n".join(chunks)
-        except Exception as e:
-            print(f"Error searching documents: {e}")
+            try:
+                res = await asyncio.to_thread(_rpc_hybrid_search_sync, db, params)
+                if res.data:
+                    chunks = [item['content'] for item in res.data]
+                    context_text = "\n\n".join(chunks)
+            except Exception as e:
+                print(f"Error in hybrid search: {e}")
 
-    # 4. Construct System Prompt & Message List
+    # ── 4. Construct System Prompt & Message List ─────────────────────────
     system_instruction = f"""
     You are {agent['name']}, a {agent['role']}.
     Description: {agent['description']}
@@ -137,20 +160,17 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     Relevant Knowledge Base:
     {context_text}
     """
-    
+
     # Building the conversation chain state
     messages = [SystemMessage(content=system_instruction)] + past_messages + [HumanMessage(content=message)]
-    
-    # 5. Bind Tools & Initialize LLM (Dynamic Model & Key)
-    tools_def = get_tools_for_agent(agent_id, [])
-    print(f"DEBUG: Binding {len(tools_def)} tools to agent {agent_id}")
 
-    tools_def = get_tools_for_agent(agent_id, [])
+    # ── 5. Bind Tools & Initialize LLM (Dynamic Model & Key) ─────────────
+    tools_def = get_tools_for_agent(agent_id, agent.get('tools') or [])
     print(f"DEBUG: Binding {len(tools_def)} tools to agent {agent_id}")
 
     # Determine Model (Key already determined above)
     model_name = agent.get('model') or "llama-3.3-70b-versatile"
-    
+
     if not api_key:
         yield "Error: No Groq API Key available for this agent."
         return
@@ -166,7 +186,7 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
         yield f"Error initializing model {model_name}: {str(e)}"
         return
 
-    # 6. Save *User* Message to DB
+    # ── 6. Save *User* Message to DB (non-blocking) ───────────────────────
     try:
         msg_data = {
             "agent_id": agent_id,
@@ -177,65 +197,66 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
             msg_data["user_id"] = user_id
         else:
             msg_data["session_id"] = user_id
-            
-        db.table("messages").insert(msg_data).execute()
+
+        # Fire-and-forget in a thread so we don't block the stream startup
+        asyncio.create_task(asyncio.to_thread(_insert_message_sync, db, msg_data))
     except Exception as e:
         print(f"Error saving user message: {e}")
-        
-    # 7. Agentic Loop (Execute -> Observation -> Final Answer)
-    # The user requirements STRICTLY limit this to ONE tool call per request.
-    
+
+    # ── 7. Agentic Loop (Execute -> Observation -> Final Answer) ──────────
     try:
-        # Step 1: Call LLM
-        response = await llm_node.ainvoke(messages)
-        
+        # Step 1: Stream from LLM
+        stream = llm_node.astream(messages)
+        try:
+            first_chunk = await anext(stream)
+        except StopAsyncIteration:
+            return
+
         # Step 2: Check for Tool Call
-        if response.tool_calls:
-            # It wants to use a tool!
+        if first_chunk.tool_calls or first_chunk.tool_call_chunks:
+            # Accumulate the full tool-call response first
+            response = first_chunk
+            async for chunk in stream:
+                response += chunk
+
             # 1. Add the AIMessage with tool calls to history
             messages.append(response)
-            
+
             # 2. Execute each tool
-            # (Limitation: Only processing the first tool call for simplicity if multiple are somehow generated.
-            # We handle all to be safe but usually it's one turn.)
-            
             for tool_call in response.tool_calls:
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
-                
-                # yield f"DEBUG: Calling {tool_name}...\n"
-                
+
                 # Execute securely
                 tool_result = execute_tool(agent_id, tool_name, tool_args)
-                
+
                 # 3. Add Tool Message with result
                 messages.append(ToolMessage(
                     tool_call_id=tool_call["id"],
                     name=tool_name,
                     content=str(tool_result)
                 ))
-            
-            # Step 3: Get Final Answer (Recursion Level 2 - Final)
-            final_response = await llm_node.ainvoke(messages)
-            
-            # Stream the final answer
-            content = final_response.content
-            chunk_size = 10
-            for i in range(0, len(content), chunk_size):
-                yield content[i:i+chunk_size]
-                
-            # Persist Final Answer
-            full_content = final_response.content
-        
-        else:
-            # No tool called, just a normal response
-            content = response.content
-            chunk_size = 10
-            for i in range(0, len(content), chunk_size):
-                yield content[i:i+chunk_size]
-            full_content = response.content
 
-        # Save *AI* Message to DB
+            # Step 3: Get Final Answer — stream it live
+            full_content = ""
+            async for chunk in llm_node.astream(messages):
+                if chunk.content:
+                    full_content += chunk.content
+                    yield chunk.content
+
+        else:
+            # No tool called, just a normal response — stream directly
+            full_content = ""
+            if first_chunk.content:
+                full_content += first_chunk.content
+                yield first_chunk.content
+
+            async for chunk in stream:
+                if chunk.content:
+                    full_content += chunk.content
+                    yield chunk.content
+
+        # Save *AI* Message to DB (non-blocking)
         if full_content:
             ai_msg_data = {
                 "agent_id": agent_id,
@@ -247,7 +268,7 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
             else:
                 ai_msg_data["session_id"] = user_id
 
-            db.table("messages").insert(ai_msg_data).execute()
+            asyncio.create_task(asyncio.to_thread(_insert_message_sync, db, ai_msg_data))
 
     except Exception as e:
         error_msg = f"Error during generation: {str(e)}"

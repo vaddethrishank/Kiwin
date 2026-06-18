@@ -27,7 +27,12 @@ async def chat_with_agent(
             message=request.message,
             user_id=current_user.id
         ),
-        media_type="text/event-stream"
+        media_type="text/plain",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        }
     )
 
 @router.get("/{agent_id}")

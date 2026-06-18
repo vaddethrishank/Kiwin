@@ -42,19 +42,32 @@ AVAILABLE_TOOLS = {
 }
 
 
-def get_tools_for_agent(agent_id: str, enabled_tools: list[str] = None):
-    return [
-        {
-            "name": "web_search",
-            "description": "Search the internet for current information.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"}
-                },
-                "required": ["query"]
-            }
+ALL_TOOL_DEFINITIONS = {
+    "web_search": {
+        "name": "web_search",
+        "description": "Search the internet for current information.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"}
+            },
+            "required": ["query"]
         }
+    }
+}
+
+def get_tools_for_agent(agent_id: str, enabled_tools: list[str] = None):
+    """
+    Returns only the tool definitions that are in the agent's enabled_tools list.
+    If enabled_tools is empty or None, returns [] so Groq never sees a tool schema
+    and won't try (and fail) to call any tools.
+    """
+    if not enabled_tools:
+        return []
+    return [
+        ALL_TOOL_DEFINITIONS[name]
+        for name in enabled_tools
+        if name in ALL_TOOL_DEFINITIONS
     ]
 
 
