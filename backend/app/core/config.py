@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     # Groq
     GROQ_API_KEY: str | None = None
 
-    # HuggingFace (for Inference API embeddings - free, no local model needed)
+    # HuggingFace (legacy, no longer used for embeddings)
     HF_TOKEN: str | None = None
+
+    # Google Gemini AI (for embeddings)
+    GEMINI_API_KEY: str | None = None
     
     # Optional: Service Role Key for backend administration (bypasses RLS)
     SUPABASE_SERVICE_ROLE_KEY: str | None = None

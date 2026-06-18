@@ -1,6 +1,7 @@
 import asyncio
+import requests
+from typing import List
 from langchain_groq import ChatGroq
-from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -8,18 +9,39 @@ from app.core.config import settings
 from supabase import create_client, Client
 from app.services.tools import get_tools_for_agent, execute_tool
 
-# HuggingFace Inference API embeddings - pure HTTP calls, NO local model, zero extra RAM
-# Model: BAAI/bge-base-en-v1.5 → 768-dim (matches Supabase vector column)
-_embeddings_model = None
+# ---------------------------------------------------------------------------
+# Google Gemini AI Embeddings — 768-dim
+# ---------------------------------------------------------------------------
 
-def get_embeddings_model():
-    global _embeddings_model
-    if _embeddings_model is None:
-        _embeddings_model = HuggingFaceInferenceAPIEmbeddings(
-            api_key=settings.HF_TOKEN or "",
-            model_name="BAAI/bge-base-en-v1.5"
-        )
-    return _embeddings_model
+# Placeholder value written to .env by default — detect it to skip the HTTP call
+_GEMINI_PLACEHOLDER = "your_gemini_api_key_here"
+
+def _has_gemini_key() -> bool:
+    """Return True only when a real (non-placeholder) Gemini API key is configured."""
+    key = settings.GEMINI_API_KEY
+    return bool(key) and key != _GEMINI_PLACEHOLDER
+
+def _gemini_embed_sync(texts: List[str]) -> List[List[float]]:
+    """Call Google Gemini embeddings API and return a list of 768-dim vectors."""
+    if not texts:
+        return []
+    requests_payload = [
+        {
+            "model": "models/gemini-embedding-2", 
+            "content": {"parts": [{"text": t}]},
+            "outputDimensionality": 768
+        }
+        for t in texts
+    ]
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents?key={settings.GEMINI_API_KEY}",
+        headers={"Content-Type": "application/json"},
+        json={"requests": requests_payload},
+        timeout=20,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return [item["values"] for item in data.get("embeddings", [])]
 
 def get_db() -> Client:
     # Always use Service Role for backend processing to ensure we can read documents
@@ -53,8 +75,8 @@ def _fetch_history_sync(db: Client, agent_id: str, user_id: str, is_public: bool
         query = query.eq("session_id", user_id)
     return query.order("created_at", desc=True).limit(10).execute()
 
-def _embed_query_sync(message: str):
-    return get_embeddings_model().embed_query(message)
+def _embed_query_sync(message: str) -> List[float]:
+    return _gemini_embed_sync([message])[0]
 
 def _rpc_hybrid_search_sync(db: Client, params: dict):
     return db.rpc("hybrid_search", params).execute()
@@ -96,11 +118,33 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     """
     db = get_db()
 
-    # ── 1 & 2. Fetch agent + history IN PARALLEL ──────────────────────────
+    # ── 1. Fetch agent + history + embed query ALL IN PARALLEL ────────────
+    # Embedding runs concurrently with the DB fetches → saves ~500ms.
+    # If no valid Jina key is set we skip the embed task entirely.
     try:
         agent_task = asyncio.to_thread(_fetch_agent_sync, db, agent_id)
         history_task = asyncio.to_thread(_fetch_history_sync, db, agent_id, user_id, is_public)
-        agent_res, history_res = await asyncio.gather(agent_task, history_task)
+
+        if _has_gemini_key():
+            print(f"[RAG] Starting Gemini embedding for query: '{message[:50]}...'")
+            embed_task = asyncio.to_thread(_embed_query_sync, message)
+            results = await asyncio.gather(
+                agent_task, history_task, embed_task,
+                return_exceptions=True
+            )
+            agent_res, history_res, embed_result = results
+            if isinstance(embed_result, Exception):
+                print(f"[RAG] Error embedding query: {embed_result}")
+                query_vector = None
+            else:
+                print(f"[RAG] Successfully got query embedding from Gemini. Vector size: {len(embed_result)}")
+                query_vector = embed_result
+        else:
+            agent_res, history_res = await asyncio.gather(agent_task, history_task)
+            query_vector = None  # no Gemini key → skip RAG, answer directly
+
+        if isinstance(agent_res, Exception):
+            raise agent_res
         agent = agent_res.data
     except Exception as e:
         print(f"Error fetching agent: {e}")
@@ -110,7 +154,7 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     # Build past messages from history result
     past_messages = []
     try:
-        raw_msgs = history_res.data[::-1] if history_res.data else []
+        raw_msgs = history_res.data[::-1] if (not isinstance(history_res, Exception) and history_res.data) else []
         for m in raw_msgs:
             if m["role"] == "user":
                 past_messages.append(HumanMessage(content=m["content"]))
@@ -119,35 +163,29 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     except Exception as e:
         print(f"Warning: Could not process history: {e}")
 
-    # ── 3. Embed Query & Retrieve Context (RAG) ───────────────────────────
-    query_vector = None
+    # ── 2. Hybrid Search (only if we got a query vector) ──────────────────
     context_text = ""
-
-    # Determine API Key first (moved up from step 5)
     api_key = agent.get('api_key') or settings.GROQ_API_KEY
 
-    if api_key:
+    if query_vector:
+        print(f"[RAG] Running hybrid_search for agent {agent_id}...")
+        params = {
+            "query_text":      message,
+            "query_embedding": query_vector,
+            "filter_agent_id": agent_id,
+            "match_count":     5,
+            "rrf_k":           60
+        }
         try:
-            # Offload blocking HTTP call to a thread pool worker
-            query_vector = await asyncio.to_thread(_embed_query_sync, message)
+            res = await asyncio.to_thread(_rpc_hybrid_search_sync, db, params)
+            if res.data:
+                chunks = [item['content'] for item in res.data]
+                context_text = "\n\n".join(chunks)
+                print(f"[RAG] hybrid_search returned {len(chunks)} chunks. Total context length: {len(context_text)} characters.")
+            else:
+                print(f"[RAG] hybrid_search returned 0 chunks. Knowledge base is empty or no match.")
         except Exception as e:
-            print(f"Error embedding: {e}")
-
-        if query_vector:
-            params = {
-                "query_text":      message,       # BM25 full-text leg
-                "query_embedding": query_vector,  # vector similarity leg
-                "filter_agent_id": agent_id,
-                "match_count":     5,
-                "rrf_k":           60             # RRF smoothing constant
-            }
-            try:
-                res = await asyncio.to_thread(_rpc_hybrid_search_sync, db, params)
-                if res.data:
-                    chunks = [item['content'] for item in res.data]
-                    context_text = "\n\n".join(chunks)
-            except Exception as e:
-                print(f"Error in hybrid search: {e}")
+            print(f"[RAG] Error in hybrid search: {e}")
 
     # ── 4. Construct System Prompt & Message List ─────────────────────────
     system_instruction = f"""
@@ -181,7 +219,10 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
             groq_api_key=api_key,
             temperature=0.7
         )
-        llm_node = llm_dynamic.bind_tools(tools_def)
+        if tools_def:
+            llm_node = llm_dynamic.bind_tools(tools_def)
+        else:
+            llm_node = llm_dynamic
     except Exception as e:
         yield f"Error initializing model {model_name}: {str(e)}"
         return
@@ -227,8 +268,8 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
 
-                # Execute securely
-                tool_result = execute_tool(agent_id, tool_name, tool_args)
+                # Execute securely without blocking the event loop
+                tool_result = await asyncio.to_thread(execute_tool, agent_id, tool_name, tool_args)
 
                 # 3. Add Tool Message with result
                 messages.append(ToolMessage(

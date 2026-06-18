@@ -1,24 +1,40 @@
 import io
 import asyncio
 import fitz  # PyMuPDF
+import requests
 from typing import List
 from supabase import create_client, Client
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from app.core.config import settings
 
-# HuggingFace Inference API - pure HTTP calls, NO local model, zero extra RAM
-# Model: BAAI/bge-base-en-v1.5 → 768-dim (matches Supabase vector column)
-_embeddings_model = None
+# ---------------------------------------------------------------------------
+# Google Gemini AI Embeddings — 768-dim
+# Model: text-embedding-004 → 768-dim (matches Supabase vector column)
+# ---------------------------------------------------------------------------
 
-def get_embeddings_model():
-    global _embeddings_model
-    if _embeddings_model is None:
-        _embeddings_model = HuggingFaceInferenceAPIEmbeddings(
-            api_key=settings.HF_TOKEN or "",
-            model_name="BAAI/bge-base-en-v1.5"
-        )
-    return _embeddings_model
+def _gemini_embed_sync(texts: List[str]) -> List[List[float]]:
+    """Call Google Gemini embeddings API and return a list of 768-dim vectors."""
+    if not texts:
+        return []
+    
+    requests_payload = [
+        {
+            "model": "models/gemini-embedding-2", 
+            "content": {"parts": [{"text": t}]},
+            "outputDimensionality": 768
+        }
+        for t in texts
+    ]
+    
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents?key={settings.GEMINI_API_KEY}",
+        headers={"Content-Type": "application/json"},
+        json={"requests": requests_payload},
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return [item["values"] for item in data.get("embeddings", [])]
 
 # Initialize Text Splitter
 text_splitter = RecursiveCharacterTextSplitter(
@@ -51,7 +67,16 @@ def _download_file_sync(db: Client, bucket: str, file_path: str):
     return db.storage.from_(bucket).download(file_path)
 
 def _embed_documents_sync(chunks: List[str]) -> List[List[float]]:
-    return get_embeddings_model().embed_documents(chunks)
+    # Batch the requests to Gemini API to prevent timeouts and payload limits
+    batch_size = 20
+    all_vectors = []
+    print(f"[INGEST] Sending {len(chunks)} chunks to Gemini API in batches of {batch_size}...")
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        print(f"[INGEST]  -> Sending Gemini batch {i//batch_size + 1}/{(len(chunks)-1)//batch_size + 1}")
+        all_vectors.extend(_gemini_embed_sync(batch))
+    print(f"[INGEST] Successfully embedded all {len(chunks)} chunks.")
+    return all_vectors
 
 def _extract_pdf_text_sync(file_content: bytes) -> str:
     """Extract text from PDF bytes using PyMuPDF.
@@ -156,12 +181,12 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
         ]
 
         batch_size = 50
-        # Fire all batch inserts concurrently
-        insert_tasks = [
-            asyncio.to_thread(_insert_documents_batch_sync, db, documents_data[i:i + batch_size])
-            for i in range(0, len(documents_data), batch_size)
-        ]
-        await asyncio.gather(*insert_tasks)
+        print(f"[INGEST] Starting DB insertion of {len(documents_data)} chunks in batches of {batch_size}...")
+        # Process database inserts sequentially to avoid exhausting the connection pool
+        for i in range(0, len(documents_data), batch_size):
+            batch = documents_data[i:i + batch_size]
+            print(f"[INGEST]  -> Inserting DB batch {i//batch_size + 1}/{(len(documents_data)-1)//batch_size + 1}")
+            await asyncio.to_thread(_insert_documents_batch_sync, db, batch)
 
         print(f"Successfully processed file {file_id}")
 

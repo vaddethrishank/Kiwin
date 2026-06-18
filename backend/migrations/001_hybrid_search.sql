@@ -10,6 +10,9 @@ ALTER TABLE documents
 
 CREATE INDEX IF NOT EXISTS documents_fts_idx ON documents USING GIN (fts);
 
+-- Create HNSW vector index for extremely fast nearest neighbor search
+CREATE INDEX IF NOT EXISTS documents_embedding_idx ON documents USING hnsw (embedding vector_cosine_ops);
+
 -- ── Step 2: Backfill existing rows (forces tsvector recompute) ───
 UPDATE documents SET content = content;
 
