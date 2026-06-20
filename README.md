@@ -22,7 +22,7 @@ Create custom personas with unique roles. Whether it's a **customer support bot*
 ### 🧠 Knowledge Base (Hybrid RAG)
 Don't just chat — **learn**. Upload your PDF documents and your agent will answer questions based specifically on *your* data using a **Hybrid Search** pipeline:
 
-- **Vector Search** — dense semantic embeddings via `BAAI/bge-base-en-v1.5`
+- **Vector Search** — dense semantic embeddings via `Google Gemini (models/gemini-embedding-2)`
 - **BM25 Full-Text Search** — exact keyword matching via PostgreSQL `tsvector`
 - **Reciprocal Rank Fusion (RRF)** — fuses both result lists for best-of-both-worlds accuracy
 
@@ -56,7 +56,7 @@ Equip your agents with live functionality:
 | **Backend** | ![FastAPI](https://img.shields.io/badge/-FastAPI-005571?style=flat&logo=fastapi) | Async Python API — full non-blocking I/O |
 | **Database** | ![Supabase](https://img.shields.io/badge/-Supabase-3ECF8E?style=flat&logo=supabase) | PostgreSQL + pgvector + full-text search |
 | **AI Model** | ![Groq](https://img.shields.io/badge/-Groq-F55036?style=flat&logo=groq) | Ultra-fast Llama 3.3 70B inference |
-| **Embeddings** | ![HuggingFace](https://img.shields.io/badge/-HuggingFace-FFD21E?style=flat&logo=huggingface) | BAAI/bge-base-en-v1.5 via Inference API |
+| **Embeddings** | ![Google Gemini](https://img.shields.io/badge/-Google%20Gemini-8E75B2?style=flat&logo=googlegemini) | models/gemini-embedding-2 via Google Generative AI API |
 | **PDF Parsing** | PyMuPDF | High-fidelity text extraction from complex PDFs |
 
 ---
@@ -70,7 +70,7 @@ User Message
     │   ├─ Fetch Agent config (Supabase)                   │
     │   └─ Fetch Chat History (Supabase)                   │
     │                                                      │
-    ├─ Embed query → BAAI/bge-base-en-v1.5 (HuggingFace) ─┘
+    ├─ Embed query → models/gemini-embedding-2 (Gemini) ───┘
     │
     ├─ hybrid_search() — PostgreSQL RPC
     │   ├─ Vector leg:  embedding <=> query_vector  (ranked)
@@ -91,6 +91,7 @@ User Message
 - Python 3.11+
 - Supabase account
 - [Groq API Key](https://console.groq.com) (free)
+- [Gemini API Key](https://aistudio.google.com/app/apikey) (free)
 
 ### 1. Clone the Repository
 ```bash
@@ -102,7 +103,7 @@ cd kiwin
 ```bash
 cd backend
 cp .env.example .env
-# Fill in SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY, HF_TOKEN
+# Fill in SUPABASE_URL, SUPABASE_KEY, GROQ_API_KEY, GEMINI_API_KEY
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
@@ -115,11 +116,11 @@ npm run dev
 ```
 
 ### 4. Database Migration
-Run the hybrid search migration once in your **Supabase Dashboard → SQL Editor**:
+Run the master schema file once in your **Supabase Dashboard → SQL Editor**:
 ```bash
-# File: backend/migrations/001_hybrid_search.sql
+# File: backend/complete_schema.sql
 ```
-This adds the `fts` tsvector column, GIN index, and `hybrid_search()` PostgreSQL function.
+This sets up all tables, storage, vectors, and the `hybrid_search()` PostgreSQL function.
 
 ---
 

@@ -6,6 +6,7 @@ from typing import List
 from supabase import create_client, Client
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.core.config import settings
+from app.core.job_store import job_store
 
 # ---------------------------------------------------------------------------
 # Google Gemini AI Embeddings — 768-dim
@@ -101,15 +102,26 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
     """
     Background task to process an uploaded file for RAG.
     All blocking I/O is offloaded to a thread pool so the event loop stays free.
+    Progress events are emitted via job_store so the SSE endpoint can stream
+    them to the browser in real-time.
     """
     print(f"Processing file {file_id} for agent {agent_id}")
     db = get_db()
 
+    async def _fail(msg: str) -> None:
+        """Emit error event and mark job failed."""
+        print(f"[RAG ERROR] {file_id}: {msg}")
+        job_store.set_status(file_id, "error", error=msg)
+        await job_store.emit(file_id, "error", msg)
+
     try:
+        job_store.set_status(file_id, "processing")
+        await job_store.emit(file_id, "progress", "downloading")
+
         # ── 1. Fetch file metadata ─────────────────────────────────────────
         file_record = await asyncio.to_thread(_fetch_file_record_sync, db, file_id)
         if not file_record.data:
-            print(f"Error: File {file_id} not found in DB")
+            await _fail("File not found in DB")
             return
 
         file_data = file_record.data[0]
@@ -123,53 +135,57 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
             agent_key_task = asyncio.to_thread(_fetch_agent_key_sync, db, agent_id)
             file_content, agent_record = await asyncio.gather(download_task, agent_key_task)
         except Exception as e:
-            print(f"Error downloading file {file_path}: {e}")
+            await _fail(f"Download failed: {e}")
             return
 
         # Resolve API key
         if not agent_record.data or not agent_record.data[0].get("api_key"):
             api_key = settings.GROQ_API_KEY
             if not api_key:
-                print(f"Error: No API Key found for agent {agent_id}")
+                await _fail(f"No API Key found for agent {agent_id}")
                 return
         else:
             api_key = agent_record.data[0]["api_key"]
 
         # ── 3. Extract text (CPU-bound — run in thread) ────────────────────
+        await job_store.emit(file_id, "progress", "extracting")
         text = ""
         if "pdf" in file_type or file_path.endswith(".pdf"):
             try:
                 text = await asyncio.to_thread(_extract_pdf_text_sync, file_content)
             except Exception as e:
-                print(f"Error extracting PDF text: {e}")
+                await _fail(f"PDF extraction failed: {e}")
                 return
         else:
             try:
                 text = file_content.decode("utf-8", errors="ignore")
             except Exception as e:
-                print(f"Error decoding text file: {e}")
+                await _fail(f"Text decode failed: {e}")
                 return
 
         if not text.strip():
-            print("Warning: No text extracted from file.")
+            await _fail("No text extracted from file")
             return
 
         # ── 4. Chunk text (CPU-bound — run in thread) ──────────────────────
+        await job_store.emit(file_id, "progress", "chunking")
         chunks = await asyncio.to_thread(text_splitter.split_text, text)
         print(f"Generated {len(chunks)} chunks")
 
         # ── 5. Embed all chunks — offload blocking HTTP call ───────────────
+        await job_store.emit(file_id, "progress", "embedding")
         try:
             vectors = await asyncio.to_thread(_embed_documents_sync, chunks)
         except Exception as e:
-            print(f"Error generating embeddings: {e}")
+            await _fail(f"Embedding failed: {e}")
             return
 
         if len(vectors) != len(chunks):
-            print("Mismatch between chunks and vectors count")
+            await _fail("Mismatch between chunks and vectors count")
             return
 
         # ── 6. Store in Supabase 'documents' — batched, each in a thread ──
+        await job_store.emit(file_id, "progress", "storing")
         documents_data = [
             {
                 "file_id": file_id,
@@ -182,13 +198,16 @@ async def process_file(file_id: str, agent_id: str, user_id: str):
 
         batch_size = 50
         print(f"[INGEST] Starting DB insertion of {len(documents_data)} chunks in batches of {batch_size}...")
-        # Process database inserts sequentially to avoid exhausting the connection pool
         for i in range(0, len(documents_data), batch_size):
             batch = documents_data[i:i + batch_size]
             print(f"[INGEST]  -> Inserting DB batch {i//batch_size + 1}/{(len(documents_data)-1)//batch_size + 1}")
             await asyncio.to_thread(_insert_documents_batch_sync, db, batch)
 
+        # ── 7. Done ────────────────────────────────────────────────────────
+        job_store.set_status(file_id, "ready")
+        await job_store.emit(file_id, "complete", "ready")
         print(f"Successfully processed file {file_id}")
 
     except Exception as e:
+        await _fail(f"Critical error: {e}")
         print(f"Critical error processing file {file_id}: {e}")

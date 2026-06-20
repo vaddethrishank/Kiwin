@@ -45,6 +45,7 @@ export default function AgentDetailsPage() {
     const [agent, setAgent] = useState<Agent | null>(null)
     const [loading, setLoading] = useState(true)
     const [refreshFiles, setRefreshFiles] = useState(0)
+    const [pendingFiles, setPendingFiles] = useState<any[]>([])
 
     // Widget Customization State
     const searchParams = useSearchParams()
@@ -274,7 +275,7 @@ export default function AgentDetailsPage() {
                     </TabsContent>
 
                     {/* KNOWLEDGE TAB */}
-                    < TabsContent value="knowledge" >
+                    <TabsContent value="knowledge" >
                         <Card>
                             <CardHeader>
                                 <CardTitle>Knowledge Base</CardTitle>
@@ -285,11 +286,19 @@ export default function AgentDetailsPage() {
                             <CardContent className="space-y-6">
                                 <FileUpload
                                     agentId={agent.id}
-                                    onUploadComplete={() => setRefreshFiles(prev => prev + 1)}
+                                    onUploadComplete={(newFile) => {
+                                        // Instantly add the new file to the list with
+                                        // "pending" status — no page freeze, no re-fetch
+                                        setPendingFiles(prev => [newFile, ...prev])
+                                    }}
                                 />
                                 <div className="mt-6">
                                     <h3 className="text-sm font-medium mb-3">Uploaded Files</h3>
-                                    <FileList agentId={agent.id} refreshTrigger={refreshFiles} />
+                                    <FileList
+                                        agentId={agent.id}
+                                        refreshTrigger={refreshFiles}
+                                        pendingFiles={pendingFiles}
+                                    />
                                 </div>
                             </CardContent>
                         </Card>
