@@ -26,8 +26,21 @@ class Settings(BaseSettings):
 
     # CORS
     BACKEND_CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
-    
+
+    # ── Redis (optional — semantic cache + fast history) ──────────────────
+    # Use Upstash: rediss://default:<PASSWORD>@<HOST>:<PORT>
+    # Leave empty to disable caching (app works normally without it)
+    REDIS_URL: str | None = None
+
+    # Cosine similarity threshold for semantic cache hits (0.0 – 1.0)
+    # 0.95 = nearly identical questions, 0.90 = paraphrases
+    REDIS_SEMANTIC_CACHE_THRESHOLD: float = 0.95
+
+    # How long (seconds) to keep cached LLM responses. Default: 1 hour.
+    REDIS_CACHE_TTL: int = 3600
+
     class Config:
         env_file = ".env"
 
 settings = Settings()
+

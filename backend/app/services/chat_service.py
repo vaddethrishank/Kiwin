@@ -8,6 +8,12 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Tool
 from app.core.config import settings
 from supabase import create_client, Client
 from app.services.tools import get_tools_for_agent, execute_tool
+from app.services.semantic_cache import get_cached_response, set_cached_response
+from app.services.history_cache import (
+    get_history_for_llm,
+    get_history_for_ui,
+    append_messages,
+)
 
 # ---------------------------------------------------------------------------
 # Google Gemini AI Embeddings — 768-dim
@@ -59,21 +65,13 @@ def is_valid_uuid(val):
 
 # ---------------------------------------------------------------------------
 # Internal sync helpers — called via asyncio.to_thread to avoid blocking the
-# event loop while Supabase or the HuggingFace API does network I/O.
+# event loop while Supabase or the Gemini API does network I/O.
 # ---------------------------------------------------------------------------
 
 def _fetch_agent_sync(db: Client, agent_id: str):
     return db.table("agents").select(
         "name, role, description, system_prompt, tools, model, api_key"
     ).eq("id", agent_id).single().execute()
-
-def _fetch_history_sync(db: Client, agent_id: str, user_id: str, is_public: bool):
-    query = db.table("messages").select("role, content").eq("agent_id", agent_id)
-    if not is_public and is_valid_uuid(user_id):
-        query = query.eq("user_id", user_id)
-    else:
-        query = query.eq("session_id", user_id)
-    return query.order("created_at", desc=True).limit(10).execute()
 
 def _embed_query_sync(message: str) -> List[float]:
     return _gemini_embed_sync([message])[0]
@@ -84,64 +82,65 @@ def _rpc_hybrid_search_sync(db: Client, params: dict):
 def _insert_message_sync(db: Client, msg_data: dict):
     return db.table("messages").insert(msg_data).execute()
 
-def _fetch_history_50_sync(db: Client, agent_id: str, user_id: str, is_public: bool):
-    query = db.table("messages").select("role, content").eq("agent_id", agent_id)
-    if not is_public and is_valid_uuid(user_id):
-        query = query.eq("user_id", user_id)
-    else:
-        query = query.eq("session_id", user_id)
-    return query.order("created_at", desc=True).limit(50).execute()
-
 # ---------------------------------------------------------------------------
 
 async def get_chat_history(agent_id: str, user_id: str, is_public: bool = False):
     """
     Fetch the last 50 messages for the chat UI.
+    Redis-first with Postgres fallback.
     Supports both Authenticated Users (UUID) and Anonymous Sessions (String).
     """
     db = get_db()
-    try:
-        res = await asyncio.to_thread(_fetch_history_50_sync, db, agent_id, user_id, is_public)
-        # Return in chronological order
-        return res.data[::-1] if res.data else []
-    except Exception as e:
-        print(f"Error fetching history: {e}")
-        return []
+    return await get_history_for_ui(agent_id, user_id, db, is_public)
 
 
 async def generate_response(agent_id: str, message: str, user_id: str, is_public: bool = False):
     """
-    RAG + Agents Logic:
-    1. Fetch Agent & Tools  (parallel with history fetch)
-    2. RAG Context          (embedding offloaded to thread)
-    3. Agentic Loop (Reason -> Tool -> Result -> Answer)
+    RAG + Agents Logic with Redis Semantic Cache + Fast History:
+
+    0. Embed query
+    1. Semantic cache check  → HIT: yield cached answer instantly (<10ms)
+    2. MISS: Fetch Agent & history (parallel with embedding)
+    3. Hybrid RAG search
+    4. Groq LLM streaming
+    5. Store answer in semantic cache + Redis history (background tasks)
+    6. Write-through to Postgres (background task)
     """
     db = get_db()
 
-    # ── 1. Fetch agent + history + embed query ALL IN PARALLEL ────────────
-    # Embedding runs concurrently with the DB fetches → saves ~500ms.
-    # If no valid Jina key is set we skip the embed task entirely.
+    # ── 0. Embed the query (needed for cache lookup AND RAG search) ────────
+    query_vector = None
+    if _has_gemini_key():
+        print(f"[RAG] Embedding query: '{message[:60]}...'")
+        try:
+            query_vector = await asyncio.to_thread(_embed_query_sync, message)
+            print(f"[RAG] Embedding done. Vector size: {len(query_vector)}")
+        except Exception as e:
+            print(f"[RAG] Embedding failed: {e}")
+
+    # ── 1. Semantic cache check ────────────────────────────────────────────
+    if query_vector is not None:
+        cached = await get_cached_response(agent_id, query_vector)
+        if cached is not None:
+            print(f"[SemanticCache] Cache HIT — returning cached response instantly.")
+            yield cached
+            # Still persist the user message to history (non-blocking)
+            asyncio.create_task(_persist_user_message(db, agent_id, user_id, message, is_public))
+            asyncio.create_task(_persist_ai_message(db, agent_id, user_id, cached, is_public))
+            asyncio.create_task(append_messages(agent_id, user_id, [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": cached},
+            ]))
+            return
+
+    # ── 2. Fetch agent + history IN PARALLEL ──────────────────────────────
     try:
         agent_task = asyncio.to_thread(_fetch_agent_sync, db, agent_id)
-        history_task = asyncio.to_thread(_fetch_history_sync, db, agent_id, user_id, is_public)
-
-        if _has_gemini_key():
-            print(f"[RAG] Starting Gemini embedding for query: '{message[:50]}...'")
-            embed_task = asyncio.to_thread(_embed_query_sync, message)
-            results = await asyncio.gather(
-                agent_task, history_task, embed_task,
-                return_exceptions=True
-            )
-            agent_res, history_res, embed_result = results
-            if isinstance(embed_result, Exception):
-                print(f"[RAG] Error embedding query: {embed_result}")
-                query_vector = None
-            else:
-                print(f"[RAG] Successfully got query embedding from Gemini. Vector size: {len(embed_result)}")
-                query_vector = embed_result
-        else:
-            agent_res, history_res = await asyncio.gather(agent_task, history_task)
-            query_vector = None  # no Gemini key → skip RAG, answer directly
+        history_task = get_history_for_llm(agent_id, user_id, db, is_public)
+        agent_res, past_msg_dicts = await asyncio.gather(
+            agent_task, history_task,
+            return_exceptions=True
+        )
 
         if isinstance(agent_res, Exception):
             raise agent_res
@@ -151,19 +150,19 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
         yield "Error: Could not find agent."
         return
 
-    # Build past messages from history result
+    # Build LangChain message objects from history
     past_messages = []
     try:
-        raw_msgs = history_res.data[::-1] if (not isinstance(history_res, Exception) and history_res.data) else []
-        for m in raw_msgs:
-            if m["role"] == "user":
-                past_messages.append(HumanMessage(content=m["content"]))
-            else:
-                past_messages.append(AIMessage(content=m["content"]))
+        if not isinstance(past_msg_dicts, Exception):
+            for m in (past_msg_dicts or []):
+                if m["role"] == "user":
+                    past_messages.append(HumanMessage(content=m["content"]))
+                else:
+                    past_messages.append(AIMessage(content=m["content"]))
     except Exception as e:
         print(f"Warning: Could not process history: {e}")
 
-    # ── 2. Hybrid Search (only if we got a query vector) ──────────────────
+    # ── 3. Hybrid RAG Search ───────────────────────────────────────────────
     context_text = ""
     api_key = agent.get('api_key') or settings.GROQ_API_KEY
 
@@ -181,13 +180,13 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
             if res.data:
                 chunks = [item['content'] for item in res.data]
                 context_text = "\n\n".join(chunks)
-                print(f"[RAG] hybrid_search returned {len(chunks)} chunks. Total context length: {len(context_text)} characters.")
+                print(f"[RAG] {len(chunks)} chunks retrieved. Context: {len(context_text)} chars.")
             else:
-                print(f"[RAG] hybrid_search returned 0 chunks. Knowledge base is empty or no match.")
+                print(f"[RAG] No chunks found — knowledge base empty or no match.")
         except Exception as e:
-            print(f"[RAG] Error in hybrid search: {e}")
+            print(f"[RAG] Hybrid search error: {e}")
 
-    # ── 4. Construct System Prompt & Message List ─────────────────────────
+    # ── 4. Build prompt ────────────────────────────────────────────────────
     system_instruction = f"""
     You are {agent['name']}, a {agent['role']}.
     Description: {agent['description']}
@@ -199,14 +198,11 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
     {context_text}
     """
 
-    # Building the conversation chain state
     messages = [SystemMessage(content=system_instruction)] + past_messages + [HumanMessage(content=message)]
 
-    # ── 5. Bind Tools & Initialize LLM (Dynamic Model & Key) ─────────────
+    # ── 5. Initialize LLM ─────────────────────────────────────────────────
     tools_def = get_tools_for_agent(agent_id, agent.get('tools') or [])
     print(f"DEBUG: Binding {len(tools_def)} tools to agent {agent_id}")
-
-    # Determine Model (Key already determined above)
     model_name = agent.get('model') or "llama-3.3-70b-versatile"
 
     if not api_key:
@@ -214,80 +210,49 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
         return
 
     try:
-        llm_dynamic = ChatGroq(
-            model=model_name,
-            groq_api_key=api_key,
-            temperature=0.7
-        )
-        if tools_def:
-            llm_node = llm_dynamic.bind_tools(tools_def)
-        else:
-            llm_node = llm_dynamic
+        llm_dynamic = ChatGroq(model=model_name, groq_api_key=api_key, temperature=0.7)
+        llm_node = llm_dynamic.bind_tools(tools_def) if tools_def else llm_dynamic
     except Exception as e:
         yield f"Error initializing model {model_name}: {str(e)}"
         return
 
-    # ── 6. Save *User* Message to DB (non-blocking) ───────────────────────
-    try:
-        msg_data = {
-            "agent_id": agent_id,
-            "role": "user",
-            "content": message
-        }
-        if not is_public and is_valid_uuid(user_id):
-            msg_data["user_id"] = user_id
-        else:
-            msg_data["session_id"] = user_id
+    # ── 6. Persist user message (non-blocking) ────────────────────────────
+    asyncio.create_task(_persist_user_message(db, agent_id, user_id, message, is_public))
 
-        # Fire-and-forget in a thread so we don't block the stream startup
-        asyncio.create_task(asyncio.to_thread(_insert_message_sync, db, msg_data))
-    except Exception as e:
-        print(f"Error saving user message: {e}")
-
-    # ── 7. Agentic Loop (Execute -> Observation -> Final Answer) ──────────
+    # ── 7. Agentic Loop ───────────────────────────────────────────────────
+    full_content = ""
     try:
-        # Step 1: Stream from LLM
         stream = llm_node.astream(messages)
         try:
             first_chunk = await anext(stream)
         except StopAsyncIteration:
             return
 
-        # Step 2: Check for Tool Call
         if first_chunk.tool_calls or first_chunk.tool_call_chunks:
-            # Accumulate the full tool-call response first
+            # Accumulate full tool-call response
             response = first_chunk
             async for chunk in stream:
                 response += chunk
 
-            # 1. Add the AIMessage with tool calls to history
             messages.append(response)
 
-            # 2. Execute each tool
             for tool_call in response.tool_calls:
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
-
-                # Execute securely without blocking the event loop
                 tool_result = await asyncio.to_thread(execute_tool, agent_id, tool_name, tool_args)
-
-                # 3. Add Tool Message with result
                 messages.append(ToolMessage(
                     tool_call_id=tool_call["id"],
                     name=tool_name,
                     content=str(tool_result)
                 ))
 
-            # Step 3: Get Final Answer — stream it live
-            full_content = ""
+            # Stream final answer after tool use
             async for chunk in llm_node.astream(messages):
                 if chunk.content:
                     full_content += chunk.content
                     yield chunk.content
-
         else:
-            # No tool called, just a normal response — stream directly
-            full_content = ""
+            # Normal (no tool) streaming
             if first_chunk.content:
                 full_content += first_chunk.content
                 yield first_chunk.content
@@ -297,21 +262,53 @@ async def generate_response(agent_id: str, message: str, user_id: str, is_public
                     full_content += chunk.content
                     yield chunk.content
 
-        # Save *AI* Message to DB (non-blocking)
-        if full_content:
-            ai_msg_data = {
-                "agent_id": agent_id,
-                "role": "assistant",
-                "content": full_content
-            }
-            if not is_public and is_valid_uuid(user_id):
-                ai_msg_data["user_id"] = user_id
-            else:
-                ai_msg_data["session_id"] = user_id
-
-            asyncio.create_task(asyncio.to_thread(_insert_message_sync, db, ai_msg_data))
-
     except Exception as e:
         error_msg = f"Error during generation: {str(e)}"
         print(error_msg)
         yield error_msg
+        return
+
+    # ── 8. Post-response: cache + history (all non-blocking) ─────────────
+    if full_content:
+        # a) Store in semantic cache (only if we have an embedding)
+        if query_vector is not None:
+            asyncio.create_task(
+                set_cached_response(agent_id, message, query_vector, full_content)
+            )
+
+        # b) Append to Redis history
+        asyncio.create_task(append_messages(agent_id, user_id, [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": full_content},
+        ]))
+
+        # c) Persist AI message to Postgres (write-through)
+        asyncio.create_task(_persist_ai_message(db, agent_id, user_id, full_content, is_public))
+
+
+# ── Private helpers ────────────────────────────────────────────────────────────
+
+async def _persist_user_message(db, agent_id, user_id, content, is_public):
+    """Fire-and-forget Postgres write for user message."""
+    try:
+        msg_data = {"agent_id": agent_id, "role": "user", "content": content}
+        if not is_public and is_valid_uuid(user_id):
+            msg_data["user_id"] = user_id
+        else:
+            msg_data["session_id"] = user_id
+        await asyncio.to_thread(_insert_message_sync, db, msg_data)
+    except Exception as e:
+        print(f"[Persist] Error saving user message: {e}")
+
+
+async def _persist_ai_message(db, agent_id, user_id, content, is_public):
+    """Fire-and-forget Postgres write for AI message."""
+    try:
+        ai_msg_data = {"agent_id": agent_id, "role": "assistant", "content": content}
+        if not is_public and is_valid_uuid(user_id):
+            ai_msg_data["user_id"] = user_id
+        else:
+            ai_msg_data["session_id"] = user_id
+        await asyncio.to_thread(_insert_message_sync, db, ai_msg_data)
+    except Exception as e:
+        print(f"[Persist] Error saving AI message: {e}")

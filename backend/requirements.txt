@@ -16,3 +16,5 @@ httpx>=0.26.0
 pymupdf>=1.23.0
 tiktoken>=0.5.2
 langchain-text-splitters
+redis>=5.0.0
+numpy>=1.26.0

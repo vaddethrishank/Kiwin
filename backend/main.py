@@ -1,11 +1,49 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.endpoints import users, agents, files, chat, public
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan handler.
+    On startup: eagerly checks Redis connectivity and logs clear status.
+    On shutdown: closes the Redis connection pool cleanly.
+    """
+    # ── Startup ────────────────────────────────────────────────────────────
+    from app.core.redis_client import redis_available, get_redis
+    ok = await redis_available()
+    if ok:
+        print("=" * 60)
+        print("✅  Redis connected — Semantic cache + fast history ACTIVE")
+        print(f"    Threshold : {settings.REDIS_SEMANTIC_CACHE_THRESHOLD * 100:.0f}% similarity")
+        print(f"    Cache TTL : {settings.REDIS_CACHE_TTL}s ({settings.REDIS_CACHE_TTL // 3600}h)")
+        print("=" * 60)
+    else:
+        print("=" * 60)
+        if settings.REDIS_URL:
+            print("⚠️   Redis UNREACHABLE — falling back to Postgres only")
+            print(f"    URL tried : {settings.REDIS_URL[:40]}...")
+        else:
+            print("ℹ️   Redis not configured (REDIS_URL not set)")
+            print("    Add REDIS_URL to .env to enable semantic caching")
+        print("=" * 60)
+
+    yield   # ← server runs here
+
+    # ── Shutdown ───────────────────────────────────────────────────────────
+    r = get_redis()
+    if r:
+        await r.aclose()
+        print("Redis connection closed.")
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Set all CORS enabled origins
@@ -31,7 +69,3 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-
-
-
-

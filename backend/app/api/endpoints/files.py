@@ -7,6 +7,7 @@ from app.api import deps
 from app.core.config import settings
 from app.core.job_store import job_store
 from app.services.rag import process_file
+from app.services.semantic_cache import invalidate_agent_cache
 from app.db.supabase import supabase as admin_supabase
 from pydantic import BaseModel
 import uuid
@@ -104,9 +105,11 @@ async def upload_file(
          raise HTTPException(status_code=500, detail="Failed to save file metadata")
          
     # 4. Register job + fire background RAG processing
+    # Also invalidate semantic cache — knowledge base is changing
     file_id = result.data[0]['id']
     job_store.register(file_id)                                          # creates SSE queue
     background_tasks.add_task(process_file, file_id, agent_id, current_user.id)
+    background_tasks.add_task(invalidate_agent_cache, agent_id)
 
     # Return immediately — UI updates optimistically, tracks progress via SSE
     return result.data[0]
@@ -167,15 +170,17 @@ def delete_file(
     user_db.postgrest.auth(auth.credentials)
 
     # Verify ownership synchronously (fast — just a DB read)
-    file_record = user_db.table("files").select("file_path").eq("id", file_id).eq("user_id", current_user.id).execute()
+    file_record = user_db.table("files").select("file_path, agent_id").eq("id", file_id).eq("user_id", current_user.id).execute()
     
     if not file_record.data:
         raise HTTPException(status_code=404, detail="File not found")
         
     file_path = file_record.data[0]["file_path"]
+    deleted_agent_id = file_record.data[0]["agent_id"]
 
-    # Fire-and-forget: actual deletion runs in background
+    # Fire-and-forget: actual deletion + cache invalidation in background
     background_tasks.add_task(_delete_file_background, file_id, file_path, auth.credentials)
+    background_tasks.add_task(invalidate_agent_cache, deleted_agent_id)
 
     # Respond instantly so the UI can remove the item without waiting
     return {"status": "success", "id": file_id}
