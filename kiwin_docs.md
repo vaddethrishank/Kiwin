@@ -166,6 +166,30 @@ Responses stream token-by-token using LangChain's `.astream()` directly over HTT
 
 ---
 
+### 5.7 ✅ Token Bucket Rate Limiting
+**Problem:** Public chat widgets could be easily abused, leading to spam and skyrocketing LLM token costs if bad actors sent thousands of messages.
+
+**Fix:** 
+- Implemented an atomic **Token Bucket Algorithm** using a custom **Lua script** executed directly in Redis.
+- **Public endpoints:** Keyed by `session_id`. Limit of 10 burst messages, refilling at 1 message every 5 seconds. Exceeding this instantly returns `429 Too Many Requests`.
+- **Authenticated endpoints:** Keyed by `user_id`. Limit of 20 burst messages, refilling at 1 message every 2 seconds.
+- Fails gracefully: If Redis is unreachable, the rate limiting is bypassed to ensure maximum availability.
+
+**Impact:** Robust protection against abuse with zero runtime overhead on the web server (O(1) Redis execution).
+
+---
+
+### 5.8 ✅ Fire-and-Forget Database Writes
+**Problem:** During chat generation, writing the user message and the final LLM response to Postgres synchronously caused slight delays before the stream started, or delayed the closing of the HTTP connection.
+
+**Fix:** 
+- Moved database writes (`_persist_user_message` and `_persist_ai_message`) into background tasks using `asyncio.create_task()`.
+- Within those tasks, blocking Supabase operations are offloaded using `asyncio.to_thread()`.
+
+**Impact:** LLM streaming begins instantly and finishes cleanly, completely decoupled from Postgres I/O latency.
+
+---
+
 ## 6. Security & Data Privacy
 - **Data Isolation** — Strict Row-Level Security (RLS) on all Supabase tables. Users only access their own agents, files, and messages.
 - **Admin Client** — Backend uses `SUPABASE_SERVICE_ROLE_KEY` for storage operations that require bypassing RLS (with manual ownership checks in code).

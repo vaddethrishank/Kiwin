@@ -1,6 +1,6 @@
 'use client'
 
-import { login, signup } from '@/app/auth/actions'
+import { resetPassword } from '@/app/auth/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,26 +14,24 @@ function SubmitButton({ formAction, children }: { formAction: (payload: FormData
     const { pending } = useFormStatus()
     return (
         <Button formAction={formAction} type="submit" className="w-full" disabled={pending}>
-            {pending ? "Please wait..." : children}
+            {pending ? "Updating..." : children}
         </Button>
     )
 }
 
-function LoginContent() {
+function ResetPasswordContent() {
     const searchParams = useSearchParams()
     const error = searchParams.get('error')
     const message = searchParams.get('message')
-    const mode = searchParams.get('mode')
-    const isSignup = mode === 'signup'
 
     return (
         <div className="w-full lg:grid lg:min-h-[600px] lg:grid-cols-2 xl:min-h-[800px] h-screen">
             <div className="flex items-center justify-center py-12">
                 <div className="mx-auto grid w-[350px] gap-6">
                     <div className="grid gap-2 text-center">
-                        <h1 className="text-3xl font-bold">{isSignup ? 'Create account' : 'Login'}</h1>
+                        <h1 className="text-3xl font-bold">Reset Password</h1>
                         <p className="text-balance text-muted-foreground">
-                            {isSignup ? "Enter your email below to create your account" : "Enter your email below to login to your account"}
+                            Enter your new password below
                         </p>
                     </div>
                     <form className="grid gap-4">
@@ -48,44 +46,31 @@ function LoginContent() {
                             </div>
                         )}
                         <div className="grid gap-2">
-                            <Label htmlFor="email">Email</Label>
+                            <Label htmlFor="password">New Password</Label>
                             <Input
-                                id="email"
-                                name="email"
-                                type="email"
-                                placeholder="m@example.com"
+                                id="password"
+                                name="password"
+                                type="password"
                                 required
                             />
                         </div>
                         <div className="grid gap-2">
-                            <div className="flex items-center">
-                                <Label htmlFor="password">Password</Label>
-                                {!isSignup && (
-                                    <Link
-                                        href="/forgot-password"
-                                        className="ml-auto inline-block text-sm underline"
-                                    >
-                                        Forgot your password?
-                                    </Link>
-                                )}
-                            </div>
-                            <Input id="password" name="password" type="password" required />
+                            <Label htmlFor="confirmPassword">Confirm Password</Label>
+                            <Input
+                                id="confirmPassword"
+                                name="confirmPassword"
+                                type="password"
+                                required
+                            />
                         </div>
-
-                        {isSignup ? (
-                            <SubmitButton formAction={signup}>
-                                Sign Up
-                            </SubmitButton>
-                        ) : (
-                            <SubmitButton formAction={login}>
-                                Login
-                            </SubmitButton>
-                        )}
+                        <SubmitButton formAction={resetPassword}>
+                            Update Password
+                        </SubmitButton>
                     </form>
                     <div className="mt-4 text-center text-sm">
-                        {isSignup ? "Already have an account? " : "Don't have an account? "}
-                        <Link href={isSignup ? "/login" : "/login?mode=signup"} className="underline">
-                            {isSignup ? "Login" : "Sign up"}
+                        Remember your password?{" "}
+                        <Link href="/login" className="underline">
+                            Login
                         </Link>
                     </div>
                 </div>
@@ -100,10 +85,10 @@ function LoginContent() {
     )
 }
 
-export default function LoginPage() {
+export default function ResetPasswordPage() {
     return (
         <Suspense fallback={<div>Loading...</div>}>
-            <LoginContent />
+            <ResetPasswordContent />
         </Suspense>
     )
 }

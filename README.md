@@ -58,6 +58,16 @@ Uploading or deleting knowledge base files never freezes the UI:
 - RAG processing (chunk → embed → store) runs entirely in the background
 - Real-time status updates stream to the browser via **Server-Sent Events (SSE)**: `Downloading → Extracting → Chunking → Embedding → Storing → ✅ Ready`
 
+### 🛡️ Token Bucket Rate Limiting
+Public and authenticated chat endpoints are protected against abuse and runaway LLM costs using an **atomic Lua-scripted Token Bucket algorithm** in Redis:
+- **Public Widget:** Limits to a burst of 10 messages, refilling at 1 message every 5 seconds per session.
+- **Authenticated:** Generous limits keyed by User ID.
+- Automatically bypasses if Redis goes down, ensuring the platform remains highly available.
+
+### 💨 Fire-and-Forget Database Writes
+LLM responses are streamed instantly while database persistence happens completely in the background:
+- `asyncio.create_task()` + `asyncio.to_thread()` ensures that Supabase synchronous insertions never block the event loop or delay the user's chat stream.
+
 ---
 
 ## 🛠️ Tech Stack
