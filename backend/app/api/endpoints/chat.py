@@ -21,6 +21,12 @@ async def chat_with_agent(
     """
     Chat with an agent securely (Streaming).
     """
+    from app.core.rate_limit import check_rate_limit
+    
+    # 1. Apply Rate Limiting based on authenticated user_id
+    # Limits to 20 requests burst, refills 1 request every 2 seconds
+    await check_rate_limit(f"ratelimit:user:{current_user.id}", capacity=20, refill_rate=0.5)
+
     return StreamingResponse(
         generate_response(
             agent_id=request.agent_id,

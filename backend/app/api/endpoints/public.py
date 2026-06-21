@@ -17,6 +17,12 @@ async def public_chat(request: PublicChatRequest):
     Public chat endpoint for the widget.
     Uses session_id as the user_id for history tracking.
     """
+    from app.core.rate_limit import check_rate_limit
+    
+    # 1. Apply Rate Limiting based on session_id
+    # Limits to 10 requests burst, refills 1 request every 5 seconds
+    await check_rate_limit(f"ratelimit:session:{request.session_id}", capacity=10, refill_rate=0.2)
+
     # Verify agent exists (optional, generate_response handles it)
     
     return StreamingResponse(
